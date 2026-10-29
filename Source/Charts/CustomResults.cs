@@ -330,14 +330,12 @@ namespace InFalsusChartLoader
                 return IntPtr.Zero;
             }
 
-            IntPtr serializer = FieldResolver.ClassPointer("MemoryPackSerializer");
-            if (serializer == IntPtr.Zero)
-                serializer = Il2CppInterop.Runtime.IL2CPP.GetIl2CppClass("MemoryPack.dll", "MemoryPack",
-                                                                        "MemoryPackSerializer");
+            IntPtr serializer = Il2CppInterop.Runtime.IL2CPP.GetIl2CppClass("MemoryPack.dll", "MemoryPack",
+                                                                            "MemoryPackSerializer");
             if (serializer == IntPtr.Zero)
             {
-                Diagnostics.Warn("MemoryPackSerializer could not be found; the custom results file " +
-                                 "cannot be read");
+                Diagnostics.Error("MemoryPack.MemoryPackSerializer: no class to ask in this build; the " +
+                                  "custom results file cannot be read");
                 return IntPtr.Zero;
             }
 

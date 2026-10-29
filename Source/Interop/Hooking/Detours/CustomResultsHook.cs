@@ -6,11 +6,6 @@ namespace InFalsusChartLoader
 {
     internal static unsafe partial class Hooks
     {
-        /// <summary>Keeps custom results out of the game's own save.</summary>
-        private const string ResultsImage = "Game.Data.dll";
-
-        private const string ResultsNamespace = "ifapp.Game.Data";
-
         /// <summary>`TryGetResult` — a song's record.</summary>
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         private delegate byte ReadResultFn(IntPtr results, IntPtr songInfo, byte difficulty,
@@ -50,9 +45,6 @@ namespace InFalsusChartLoader
             try
             {
                 IntPtr klass = FieldResolver.ClassPointer("GameResultsV4");
-                if (klass == IntPtr.Zero)
-                    klass = Il2CppInterop.Runtime.IL2CPP.GetIl2CppClass(ResultsImage, ResultsNamespace,
-                                                                        "GameResultsV4");
 
                 IntPtr read = CustomResults.MethodOn(klass, "TryGetResult", 3);
                 IntPtr readFull = CustomResults.MethodOn(klass, "TryGetResult", 10);
@@ -64,8 +56,8 @@ namespace InFalsusChartLoader
 
                 if (readCode == IntPtr.Zero || readFullCode == IntPtr.Zero || updateCode == IntPtr.Zero)
                 {
-                    Diagnostics.Error("the game's result table could not be found; custom scores will go " +
-                                      "into the game's own save file");
+                    Diagnostics.Error("GameResultsV4.TryGetResult/TryUpdate could not be found in this " +
+                                      "build; custom scores will go into the game's own save file");
                     return false;
                 }
 
@@ -103,9 +95,6 @@ namespace InFalsusChartLoader
                 Diagnostics.Info("GameResultsV4.TryUpdate hooked");
 
                 IntPtr encounterClass = FieldResolver.ClassPointer("EncounterResults");
-                if (encounterClass == IntPtr.Zero)
-                    encounterClass = Il2CppInterop.Runtime.IL2CPP.GetIl2CppClass(ResultsImage, ResultsNamespace,
-                                                                                "EncounterResults");
 
                 IntPtr encounter = CustomResults.MethodOn(encounterClass, "UpdateEncounterResult", 1);
                 IntPtr encounterCode = encounter == IntPtr.Zero ? IntPtr.Zero : *(IntPtr*)encounter;
@@ -113,8 +102,9 @@ namespace InFalsusChartLoader
 
                 if (encounterCode == IntPtr.Zero)
                 {
-                    Diagnostics.Error("the game's encounter results could not be found; a custom song's " +
-                                      "encounter result will be written into the game's own save");
+                    Diagnostics.Error("EncounterResults.UpdateEncounterResult could not be found in this " +
+                                      "build; a custom song's encounter result will be written into the " +
+                                      "game's own save");
                 }
                 else
                 {
