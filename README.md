@@ -41,9 +41,7 @@ build.bat --BepInEx Debug  :: BepInEx Debug
 
 ## 使用
 
-`Charts` 下**每个子文件夹即为一首歌**，mod会严格按照引导文件 `if` 进行加载，详见[if文件示例文档](./IF.EXAMPLE.md)
-
-加载后，选曲界面最上方会出现合集 **IFCL**
+mod会严格按照引导文件 `if` 进行加载，详见[if文件示例文档](./IF.EXAMPLE.md)
 
 if文件只要有一条信息非法则不会导入该谱面
 

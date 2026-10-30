@@ -104,11 +104,35 @@ namespace InFalsusChartLoader
         private static int PackInfoSlug => Offsets.Pack.Slug;    // string
         private static int PackInfoSongs => Offsets.Pack.Songs;  // SongId[]
 
-        /// <summary>This mod's pack id, taken from the live pack table.</summary>
+        /// <summary>This mod's IFCL pack id, taken from the live pack table.</summary>
         internal static int CustomPackId = -1;
 
-        /// <summary>Where in the pack array this mod's pack is inserted.</summary>
-        private const int CustomPackIndex = 1;
+        /// <summary>The pack manifest each live custom pack id belongs to.</summary>
+        private static readonly Dictionary<ushort, PackManifest> LivePacks =
+            new Dictionary<ushort, PackManifest>();
+
+        /// <summary>Whether a pack id is one of this mod's live packs, IFCL included.</summary>
+        internal static bool IsCustomPack(ushort id) =>
+            (CustomPackId >= 0 && id == (ushort)CustomPackId) || LivePacks.ContainsKey(id);
+
+        /// <summary>Whether a pack id is in the live pack table.</summary>
+        internal static bool LivePackExists(ushort id) => LivePackSongCount(id, out _);
+
+        /// <summary>Whether a pack id is a live pack that this mod did not make.</summary>
+        internal static bool IsOfficialPack(ushort id) => !IsCustomPack(id) && LivePackExists(id);
+
+        /// <summary>How many custom packs are live, IFCL included.</summary>
+        internal static int CustomPackCount => LivePacks.Count + (CustomPackId >= 0 ? 1 : 0);
+
+        /// <summary>The pack ids the mod has live, IFCL first.</summary>
+        internal static IEnumerable<int> LiveCustomPackIds()
+        {
+            if (CustomPackId >= 0) yield return CustomPackId;
+
+            var ids = new List<ushort>(LivePacks.Keys);
+            ids.Sort();
+            foreach (ushort id in ids) yield return id;
+        }
 
         /// <summary>The song ids this run handed out.</summary>
         internal static readonly HashSet<ushort> CustomSongIds = new HashSet<ushort>();
@@ -259,11 +283,13 @@ namespace InFalsusChartLoader
         }
 
         /// <summary>Adds every chart folder to the song and pack tables.</summary>
-        internal static int Inject(IntPtr songData, IntPtr packData, List<ChartInfo> charts) =>
-            ReplaceCustoms(songData, packData, charts);
+        internal static int Inject(IntPtr songData, IntPtr packData, List<ChartInfo> charts,
+                                   List<PackManifest> packs) =>
+            ReplaceCustoms(songData, packData, charts, packs);
 
         /// <summary>Rebuilds the custom tail of the song table in id order.</summary>
-        internal static int ReplaceCustoms(IntPtr songData, IntPtr packData, List<ChartInfo> charts)
+        internal static int ReplaceCustoms(IntPtr songData, IntPtr packData, List<ChartInfo> charts,
+                                           List<PackManifest> packs)
         {
             IntPtr oldSongs = Memory.Ptr(songData + SongDataAllSongs);
             if (!Memory.LooksLikeObject(oldSongs)) { Diagnostics.Warn("SongData has no song array"); return 0; }
@@ -282,8 +308,20 @@ namespace InFalsusChartLoader
 
             IntPtr titleTemplate = FirstReadings(oldSongs, oldCount);
 
-            IntPtr songIds = AllocateSongIds(packData, charts.Count);
-            if (songIds == IntPtr.Zero) return 0;
+            List<PackGroup> groups = BuildGroups(packData, charts, packs);
+            if (groups == null) return 0;
+
+            if (!PackSetup.ApplyPackAssets(packData, packs))
+            {
+                Diagnostics.Error("the custom packs could not be given their rows; the custom songs were " +
+                                  "not added");
+                return 0;
+            }
+
+            var placement = new Dictionary<ChartInfo, (PackGroup Group, int Index)>();
+            foreach (PackGroup group in groups)
+                for (int i = 0; i < group.Songs.Count; i++)
+                    placement[group.Songs[i]] = (group, i);
 
             if (!GrowAvailability(songData, newCount)) return 0;
 
@@ -310,7 +348,7 @@ namespace InFalsusChartLoader
                 Buffer.MemoryCopy((void*)(oldSongs + Offsets.Runtime.ArrayDataOffset), (void*)slot,
                                   stride, stride);
 
-                Memory.WritePtr(slot + SongInfoTitleReading, BuildReadings(titleTemplate, charts[i].Name));
+                Memory.WritePtr(slot + SongInfoTitleReading, BuildReadings(titleTemplate, charts[i].Names));
                 Memory.WritePtr(slot + SongInfoArtistReading, Str(charts[i].Composer));
 
                 Memory.WriteU16(slot + SongInfoId, (ushort)id);
@@ -328,10 +366,12 @@ namespace InFalsusChartLoader
                 Diagnostics.Info($"probe: rebuild slot={id} songId={Memory.U16(slot + SongInfoId)} " +
                                  $"charts=0x{chartInfos.ToInt64():X} base='{charts[i].BaseName}'");
 
-                WriteSongId(songIds, i, (ushort)id);
+                if (placement.TryGetValue(charts[i], out (PackGroup group, int index) at))
+                    WriteSongId(at.group.SongIds, at.index, (ushort)id);
             }
 
             Memory.WritePtr(songData + SongDataAllSongs, songs);
+            Root(songs);
 
             CustomSongIds.Clear();
             ById.Clear();
@@ -345,26 +385,218 @@ namespace InFalsusChartLoader
                 ChartCatalog.Adopt(charts[i]);
             }
 
-            if (charts.Count > 0)
-            {
-                if (CustomPackId < 0) AddPack(packData, songIds, charts.Count);
-                else SetPackSongs(packData, songIds);
-            }
-            else if (CustomPackId >= 0)
-            {
-                SetPackSongs(packData, songIds);
-            }
+            if (!WritePackTable(packData, groups)) return 0;
 
             for (int i = 0; i < charts.Count; i++)
             {
                 int id = shipped + i;
-                PackSetup.SetSongText(PackSetup.SongText.Title, id, charts[i].Name);
+                PackSetup.SetSongText(PackSetup.SongText.Title, id, charts[i].Names);
                 PackSetup.SetSongText(PackSetup.SongText.Artist, id, charts[i].Composer);
                 PackSetup.SetSongText(PackSetup.SongText.Illustrator, id, IllustratorOf(charts[i], 0));
             }
 
             Refresh(songData);
             return charts.Count;
+        }
+
+        /// <summary>One pack row while the custom pack table is being rebuilt.</summary>
+        private sealed class PackGroup
+        {
+            internal ushort PackId;
+            internal string Name;
+            internal List<ChartInfo> Songs;
+            internal IntPtr SongIds;
+        }
+
+        /// <summary>The pack id a live pack root's <c>if</c> id was given.</summary>
+        private static readonly Dictionary<string, ushort> PackIds =
+            new Dictionary<string, ushort>(StringComparer.Ordinal);
+
+        /// <summary>Groups the songs by their pack and gives every non-empty pack its id.</summary>
+        private static List<PackGroup> BuildGroups(IntPtr packData, List<ChartInfo> charts,
+                                                   List<PackManifest> packs)
+        {
+            IntPtr oldPacks = Memory.Ptr(packData + PackDataPacks);
+            if (!Memory.LooksLikeObject(oldPacks)) { Diagnostics.Warn("PackData has no pack array"); return null; }
+
+            int oldCount = Memory.I32(oldPacks + Offsets.Runtime.ArrayLength);
+            int next = NextPackId(oldPacks, oldCount);
+
+            var wanted = new HashSet<string>(StringComparer.Ordinal);
+            foreach (PackManifest pack in packs) wanted.Add(pack.Id);
+            foreach (string key in new List<string>(PackIds.Keys))
+                if (!wanted.Contains(key)) PackIds.Remove(key);
+
+            var groups = new List<PackGroup>();
+            var ifclSongs = new List<ChartInfo>();
+            foreach (ChartInfo chart in charts)
+                if (chart.Pack == null) ifclSongs.Add(chart);
+
+            if (ifclSongs.Count > 0)
+            {
+                if (CustomPackId < 0) CustomPackId = next++;
+                else if (CustomPackId >= next)
+                {
+                    Diagnostics.Error("PackData.PackInfo and SongCatalog.PackIds are out of step; " +
+                                      "the custom packs were not written");
+                    return null;
+                }
+
+                groups.Add(new PackGroup
+                {
+                    PackId = (ushort)CustomPackId,
+                    Name = PackName,
+                    Songs = ifclSongs,
+                });
+            }
+            else
+            {
+                CustomPackId = -1;
+            }
+
+            var byManifest = new Dictionary<PackManifest, List<ChartInfo>>();
+            foreach (PackManifest pack in packs) byManifest[pack] = new List<ChartInfo>();
+
+            foreach (ChartInfo chart in charts)
+            {
+                if (chart.Pack == null) continue;
+                if (!byManifest.TryGetValue(chart.Pack, out List<ChartInfo> songs))
+                {
+                    Diagnostics.Error("a custom song names a pack that was not imported; the custom packs " +
+                                      "were not written");
+                    return null;
+                }
+
+                songs.Add(chart);
+            }
+
+            LivePacks.Clear();
+            foreach (PackManifest pack in packs)
+            {
+                List<ChartInfo> songs = byManifest[pack];
+                if (songs.Count == 0)
+                {
+                    pack.PackId = -1;
+                    PackIds.Remove(pack.Id);
+                    continue;
+                }
+
+                if (!PackIds.TryGetValue(pack.Id, out ushort packId))
+                {
+                    packId = (ushort)next++;
+                    PackIds[pack.Id] = packId;
+                }
+                else if (packId >= next)
+                {
+                    Diagnostics.Error("PackData.PackInfo and SongCatalog.PackIds are out of step; " +
+                                      "the custom packs were not written");
+                    return null;
+                }
+
+                pack.PackId = packId;
+                groups.Add(new PackGroup
+                {
+                    PackId = packId,
+                    Name = pack.Name,
+                    Songs = songs,
+                });
+                LivePacks[packId] = pack;
+            }
+
+            foreach (PackGroup group in groups)
+            {
+                group.SongIds = AllocateSongIds(packData, group.Songs.Count);
+                if (group.SongIds == IntPtr.Zero) return null;
+            }
+
+            return groups;
+        }
+
+        /// <summary>The first pack id above every live row's id.</summary>
+        private static int NextPackId(IntPtr packs, int count)
+        {
+            int next = 0;
+
+            for (int i = 0; i < count; i++)
+            {
+                int id = Memory.U16(packs + Offsets.Runtime.ArrayDataOffset + i * PackInfoSize + PackInfoId);
+                if (id >= next) next = id + 1;
+            }
+
+            return next;
+        }
+
+        /// <summary>Whether a pack row is one this mod wrote.</summary>
+        private static bool IsCustomRow(IntPtr row)
+        {
+            IntPtr slug = Memory.Ptr(row + PackInfoSlug);
+            return string.Equals(Memory.Text(slug, 16), "custom", StringComparison.Ordinal);
+        }
+
+        /// <summary>Writes the custom packs, then the game's own rows, into the live pack table.</summary>
+        private static bool WritePackTable(IntPtr packData, List<PackGroup> groups)
+        {
+            IntPtr oldPacks = Memory.Ptr(packData + PackDataPacks);
+            if (!Memory.LooksLikeObject(oldPacks)) { Diagnostics.Warn("PackData has no pack array"); return false; }
+
+            int oldCount = Memory.I32(oldPacks + Offsets.Runtime.ArrayLength);
+            int stride = PackInfoSize;
+
+            int official = 0;
+            IntPtr template = IntPtr.Zero;
+            var officialRows = new List<IntPtr>();
+            for (int i = 0; i < oldCount; i++)
+            {
+                IntPtr row = oldPacks + Offsets.Runtime.ArrayDataOffset + i * stride;
+                if (IsCustomRow(row)) continue;
+
+                official++;
+                officialRows.Add(row);
+                if (template == IntPtr.Zero) template = row;
+            }
+
+            if (template == IntPtr.Zero)
+            {
+                Diagnostics.Error("the game's pack table has no shipped row to take a shape from; " +
+                                  "the custom packs were not written");
+                return false;
+            }
+
+            int total = groups.Count + official;
+            IntPtr fresh = NewArray(oldPacks, total);
+            if (fresh == IntPtr.Zero) return false;
+
+            int at = 0;
+
+            // Keeps the game's head row first, then the mod's packs, then the game's other packs.
+            Buffer.MemoryCopy((void*)officialRows[0],
+                              (void*)(fresh + Offsets.Runtime.ArrayDataOffset), stride, stride);
+            at++;
+
+            foreach (PackGroup group in groups)
+            {
+                IntPtr destination = fresh + Offsets.Runtime.ArrayDataOffset + at * stride;
+                Buffer.MemoryCopy((void*)template, (void*)destination, stride, stride);
+
+                Memory.WriteU16(destination + PackInfoId, group.PackId);
+                Memory.WritePtr(destination + PackInfoSlug, Str("custom"));
+                Memory.WritePtr(destination + PackInfoSongs, group.SongIds);
+                if (Offsets.Pack.ExternalURL >= 0)
+                    Memory.WritePtr(destination + Offsets.Pack.ExternalURL, IntPtr.Zero);
+                at++;
+            }
+
+            for (int i = 1; i < officialRows.Count; i++)
+            {
+                IntPtr destination = fresh + Offsets.Runtime.ArrayDataOffset + at * stride;
+                Buffer.MemoryCopy((void*)officialRows[i], (void*)destination, stride, stride);
+                at++;
+            }
+
+            Memory.WritePtr(packData + PackDataPacks, fresh);
+            Root(fresh);
+            PackSetup.RefreshLookup(packData);
+            return true;
         }
 
         /// <summary>How many songs the live table holds, or -1.</summary>
@@ -386,26 +618,6 @@ namespace InFalsusChartLoader
 
             IntPtr list = Memory.Ptr(songData + field);
             return Memory.LooksLikeObject(list) ? Memory.I32(list + Offsets.Runtime.ArrayLength) : -1;
-        }
-
-        /// <summary>Replaces the custom pack's song list with the rebuilt one.</summary>
-        private static bool SetPackSongs(IntPtr packData, IntPtr songIds)
-        {
-            IntPtr packs = Memory.Ptr(packData + Offsets.PackData.Packs);
-            if (!Memory.LooksLikeObject(packs)) { Diagnostics.Warn("PackData has no pack array"); return false; }
-
-            int count = Memory.I32(packs + Offsets.Runtime.ArrayLength);
-            for (int i = 0; i < count; i++)
-            {
-                IntPtr pack = packs + Offsets.Runtime.ArrayDataOffset + i * PackInfoSize;
-                if (Memory.U16(pack + PackInfoId) != (ushort)CustomPackId) continue;
-
-                Memory.WritePtr(pack + PackInfoSongs, songIds);
-                return true;
-            }
-
-            Diagnostics.Error("the custom pack is no longer in the pack list; its song list was not updated");
-            return false;
         }
 
         /// <summary>The live song-id array of one pack, or zero when it is not in the live table.</summary>
@@ -537,7 +749,7 @@ namespace InFalsusChartLoader
                                   (void*)(resized + Offsets.Runtime.ArrayDataOffset), bytes, bytes);
             }
 
-            return resized;
+            return Root(resized);
         }
 
         /// <summary>The illustrator to show for one difficulty.</summary>
@@ -593,27 +805,48 @@ namespace InFalsusChartLoader
             Diagnostics.Info("song list rebuilt");
         }
 
-        /// <summary>A title-reading array with the same text in every locale.</summary>
-        private static IntPtr BuildReadings(IntPtr template, string text)
+        /// <summary>A title-reading array with one text per game locale.</summary>
+        private static IntPtr BuildReadings(IntPtr template, string[] names)
         {
             if (!Memory.LooksLikeObject(template)) return IntPtr.Zero;
+            if (names == null || names.Length != 5)
+            {
+                Diagnostics.Error("the song name does not have five language slots");
+                return IntPtr.Zero;
+            }
 
             int locales = Memory.I32(template + Offsets.Runtime.ArrayLength);
             if (locales <= 0 || locales > LocaleLimit)
             {
                 Diagnostics.Warn($"the shipped title readings hold no locale count ({locales}); " +
-                                 $"'{text}' keeps its name from the localisation table");
+                                 $"'{names[0]}' keeps its name from the localisation table");
                 return IntPtr.Zero;
             }
 
             IntPtr array = NewArray(template, locales);
             if (array == IntPtr.Zero) return IntPtr.Zero;
 
-            IntPtr value = Str(text);
             for (int i = 0; i < locales; i++)
+            {
+                IntPtr value = Str(ReadingFor(names, i));
                 Memory.WritePtr(array + Offsets.Runtime.ArrayDataOffset + i * IntPtr.Size, value);
+            }
 
-            return array;
+            return Root(array);
+        }
+
+        /// <summary>The name for one `Strings.Localization` index.</summary>
+        private static string ReadingFor(string[] names, int locale)
+        {
+            switch (locale)
+            {
+                case 1: return names[2];   // English
+                case 2: return names[3];   // Japanese
+                case 3: return names[4];   // Korean
+                case 4: return names[1];   // Traditional Chinese
+                case 5: return names[0];   // Simplified Chinese
+                default: return names[2];  // Unset, and anything past the enum
+            }
         }
 
         /// <summary>The per-difficulty records for one song.</summary>
@@ -654,136 +887,22 @@ namespace InFalsusChartLoader
                                     : string.Empty));
             }
 
-            return array;
+            return Root(array);
         }
 
-        /// <summary>Puts this mod's pack at the front of the pack list.</summary>
-        private static bool AddPack(IntPtr packData, IntPtr songIds, int songCount)
+        /// <summary>What the category screen was built from, so a structural change redraws it.</summary>
+        internal static string PackScreenSignature()
         {
-            IntPtr oldPacks = Memory.Ptr(packData + PackDataPacks);
-            if (!Memory.LooksLikeObject(oldPacks)) { Diagnostics.Warn("PackData has no pack array"); return false; }
+            var parts = new List<string>();
+            if (CustomPackId >= 0) parts.Add($"i{CustomPackId}");
 
-            int oldCount = Memory.I32(oldPacks + Offsets.Runtime.ArrayLength);
-            if (oldCount <= CustomPackIndex)
-            {
-                Diagnostics.Warn($"the pack list has {oldCount} entries; there is no room before the first pack");
-                return false;
-            }
+            var packs = new List<PackManifest>(LivePacks.Values);
+            packs.Sort((left, right) => left.PackId.CompareTo(right.PackId));
+            foreach (PackManifest pack in packs)
+                parts.Add($"p{pack.PackId}:{pack.Id}:{string.Join(",", pack.Names)}:{string.Join(",", pack.JacketPaths)}");
 
-            int packId = NextPackId(oldPacks, oldCount);
-
-            IntPtr packs = NewArray(oldPacks, oldCount + 1);
-            if (packs == IntPtr.Zero) return false;
-
-            IntPtr source = oldPacks + Offsets.Runtime.ArrayDataOffset;
-            IntPtr data = packs + Offsets.Runtime.ArrayDataOffset;
-
-            long head = (long)CustomPackIndex * PackInfoSize;
-            Buffer.MemoryCopy((void*)source, (void*)data, head, head);
-
-            IntPtr mine = (IntPtr)(data.ToInt64() + head);
-            Memory.WriteU16(mine + PackInfoId, (ushort)packId);
-            Memory.WritePtr(mine + PackInfoSlug, Str("custom"));
-            Memory.WritePtr(mine + PackInfoSongs, songIds);
-
-            long rest = (long)(oldCount - CustomPackIndex) * PackInfoSize;
-            Buffer.MemoryCopy((void*)(source.ToInt64() + head), (void*)(mine.ToInt64() + PackInfoSize), rest, rest);
-
-            Memory.WritePtr(packData + PackDataPacks, packs);
-
-            CustomPackId = packId;
-            Diagnostics.Info($"pack '{PackName}' added with {songCount} songs at index {CustomPackIndex} " +
-                             $"(id {packId}), before the game's {oldCount - CustomPackIndex} shown packs");
-            return true;
-        }
-
-        /// <summary>
-        /// Puts the custom pack into the live table with no songs, so a pack select scene built
-        /// now has an entry for it; the entry is hidden while the table holds none.
-        /// </summary>
-        internal static bool SetupEmptyPack(IntPtr packData)
-        {
-            if (CustomPackId >= 0) return true;
-
-            IntPtr songIds = AllocateSongIds(packData, 0);
-            if (songIds == IntPtr.Zero) return false;
-
-            return AddPack(packData, songIds, 0);
-        }
-
-        /// <summary>Whether the custom pack is in the live table and holds no songs.</summary>
-        internal static bool EmptyPackListed()
-        {
-            if (CustomPackId < 0) return false;
-            return LivePackSongCount((ushort)CustomPackId, out int songs) && songs == 0;
-        }
-
-        /// <summary>
-        /// Takes the empty custom pack out of the live pack table for one build, so the game's own
-        /// pack screen is built without it; the returned table puts it back.
-        /// </summary>
-        internal static IntPtr HideEmptyPackForBuild()
-        {
-            if (CustomPackId < 0) return IntPtr.Zero;
-            if (!TryGetAssets(out IntPtr _, out IntPtr packData)) return IntPtr.Zero;
-            if (!LivePackSongCount((ushort)CustomPackId, out int songs) || songs > 0) return IntPtr.Zero;
-
-            IntPtr packs = Memory.Ptr(packData + PackDataPacks);
-            if (!Memory.LooksLikeObject(packs)) return IntPtr.Zero;
-
-            int count = Memory.I32(packs + Offsets.Runtime.ArrayLength);
-            int at = -1;
-            for (int i = 0; i < count; i++)
-            {
-                IntPtr pack = packs + Offsets.Runtime.ArrayDataOffset + i * PackInfoSize;
-                if (Memory.U16(pack + PackInfoId) == (ushort)CustomPackId)
-                {
-                    at = i;
-                    break;
-                }
-            }
-            if (at < 0) return IntPtr.Zero;
-
-            IntPtr kept = NewArray(packs, count - 1);
-            if (kept == IntPtr.Zero) return IntPtr.Zero;
-
-            IntPtr source = packs + Offsets.Runtime.ArrayDataOffset;
-            IntPtr data = kept + Offsets.Runtime.ArrayDataOffset;
-            long head = (long)at * PackInfoSize;
-            long tail = (long)(count - at - 1) * PackInfoSize;
-
-            if (head > 0) Buffer.MemoryCopy((void*)source, (void*)data, head, head);
-            if (tail > 0)
-                Buffer.MemoryCopy((void*)(source.ToInt64() + head + PackInfoSize),
-                                  (void*)(data.ToInt64() + head), tail, tail);
-
-            Memory.WritePtr(packData + PackDataPacks, kept);
-            PackSetup.RefreshLookup(packData);
-            return packs;
-        }
-
-        /// <summary>Puts back the pack table a build was hidden from.</summary>
-        internal static void RestorePackTable(IntPtr table)
-        {
-            if (table == IntPtr.Zero) return;
-            if (!TryGetAssets(out IntPtr _, out IntPtr packData)) return;
-
-            Memory.WritePtr(packData + PackDataPacks, table);
-            PackSetup.RefreshLookup(packData);
-        }
-
-        /// <summary>The first pack id the game is not using.</summary>
-        private static int NextPackId(IntPtr packs, int count)
-        {
-            int next = 0;
-
-            for (int i = 0; i < count; i++)
-            {
-                int id = Memory.U16(packs + Offsets.Runtime.ArrayDataOffset + i * PackInfoSize + PackInfoId);
-                if (id >= next) next = id + 1;
-            }
-
-            return next;
+            parts.Add($"v{PackVisuals.Revision}");
+            return string.Join("|", parts);
         }
 
         /// <summary>A `SongId[]` holding the ids this mod handed out.</summary>
@@ -797,7 +916,7 @@ namespace InFalsusChartLoader
             IntPtr template = Memory.Ptr(firstPack + PackInfoSongs);
             if (!Memory.LooksLikeObject(template)) { Diagnostics.Warn("a shipped pack has no song ids"); return IntPtr.Zero; }
 
-            return NewArray(template, count);
+            return Root(NewArray(template, count));
         }
 
         /// <summary>The first song's `ChartInfos` array object.</summary>
@@ -848,7 +967,7 @@ namespace InFalsusChartLoader
                                   (void*)(grown + Offsets.Runtime.ArrayDataOffset), bytes, bytes);
             }
 
-            return grown;
+            return Root(grown);
         }
 
         /// <summary>An array of the same element type as <paramref name="like"/>, empty.</summary>
@@ -875,6 +994,14 @@ namespace InFalsusChartLoader
 
         /// <summary>A managed string as an IL2CPP one.</summary>
         private static IntPtr Str(string text) =>
-            Il2CppInterop.Runtime.IL2CPP.ManagedStringToIl2Cpp(text);
+            Root(Il2CppInterop.Runtime.IL2CPP.ManagedStringToIl2Cpp(text));
+
+        /// <summary>Keeps a mod-created IL2CPP object alive while the game holds it.</summary>
+        private static IntPtr Root(IntPtr value)
+        {
+            if (value != IntPtr.Zero)
+                Il2CppInterop.Runtime.IL2CPP.il2cpp_gchandle_new(value, false);
+            return value;
+        }
     }
 }

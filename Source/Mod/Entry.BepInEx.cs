@@ -31,6 +31,8 @@ namespace InFalsusChartLoader
     public sealed class ChartLoaderTick : MonoBehaviour
     {
         private void Update() => ModCore.Update();
+
+        private void LateUpdate() => ModCore.LateUpdate();
     }
 }
 #endif

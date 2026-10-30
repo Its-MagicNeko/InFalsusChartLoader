@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Text.Json;
@@ -97,7 +98,8 @@ namespace InFalsusChartLoader
             if (!Text(root, "id", out string id, out reason)) return false;
             built.BaseName = id;
 
-            if (!Text(root, "name", out built.Name, out reason)) return false;
+            if (!LocalizedName(root, out built.Names, out reason)) return false;
+            built.Name = built.Names[0];
             if (!Text(root, "composer", out built.Composer, out reason)) return false;
 
             if (!Illustrators(root, out built.Illustrators, out reason)) return false;
@@ -126,6 +128,234 @@ namespace InFalsusChartLoader
 
             info = built;
             return true;
+        }
+
+        /// <summary>Whether a folder's <c>if</c> file says the folder is a pack root.</summary>
+        internal static bool IsPackFolder(string folder)
+        {
+            string ifPath = Path.Combine(folder, InfoFileName);
+            if (!File.Exists(ifPath)) return false;
+
+            try
+            {
+                using JsonDocument document = JsonDocument.Parse(File.ReadAllText(ifPath), JsonOptions);
+                JsonElement root = document.RootElement;
+                return root.ValueKind == JsonValueKind.Object &&
+                       root.TryGetProperty("pack", out JsonElement flag) &&
+                       flag.ValueKind == JsonValueKind.True;
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
+        /// <summary>Reads a pack root's <c>if</c>; <paramref name="isPack"/> says whether it was a pack.</summary>
+        internal static bool TryReadPack(string folder, out PackManifest pack, out bool isPack, out string reason)
+        {
+            pack = null;
+            isPack = false;
+            reason = null;
+
+            string ifPath = Path.Combine(folder, InfoFileName);
+            if (!File.Exists(ifPath)) return false;
+
+            string text;
+            try
+            {
+                text = File.ReadAllText(ifPath);
+            }
+            catch (Exception e)
+            {
+#if DEBUG
+                reason = $"{InfoFileName} could not be read: {Diagnostics.Describe(e)}";
+#else
+                _ = e;
+#endif
+                return false;
+            }
+
+            JsonDocument document;
+            try
+            {
+                document = JsonDocument.Parse(text, JsonOptions);
+            }
+            catch (Exception e)
+            {
+#if DEBUG
+                reason = $"{InfoFileName} is not valid JSON: {Diagnostics.Describe(e)}";
+#else
+                _ = e;
+#endif
+                return false;
+            }
+
+            using JsonDocument owned = document;
+            JsonElement root = owned.RootElement;
+            if (root.ValueKind != JsonValueKind.Object) return false;
+
+            if (!root.TryGetProperty("pack", out JsonElement flag) || flag.ValueKind != JsonValueKind.True)
+                return false;
+
+            isPack = true;
+            var built = new PackManifest
+            {
+                Folder = folder,
+                FolderName = Path.GetFileName(folder),
+            };
+
+            if (!Text(root, "id", out built.Id, out reason)) return false;
+            if (!LocalizedName(root, out built.Names, out reason)) return false;
+            built.Name = built.Names[0];
+            if (!PackJackets(root, folder, out built.JacketPaths, out reason)) return false;
+
+            pack = built;
+            return true;
+        }
+
+        /// <summary>The five pack pictures, in the format's slot order.</summary>
+        private static bool PackJackets(JsonElement root, string folder, out string[] paths, out string reason)
+        {
+            paths = new string[5];
+            reason = null;
+
+            if (!root.TryGetProperty("jacket", out JsonElement token) ||
+                token.ValueKind == JsonValueKind.Null)
+            {
+#if DEBUG
+                reason = "\"jacket\" is missing";
+#endif
+                return false;
+            }
+
+            if (token.ValueKind == JsonValueKind.String)
+            {
+                if (!LocalFileAt(folder, "jacket", token.GetString(), ImageExtensions, out paths[0], out reason))
+                    return false;
+                return true;
+            }
+
+            if (token.ValueKind != JsonValueKind.Array)
+            {
+#if DEBUG
+                reason = "\"jacket\" is not a string or an array";
+#endif
+                return false;
+            }
+
+            int at = 0;
+            foreach (JsonElement entry in token.EnumerateArray())
+            {
+                if (at >= paths.Length) break;
+
+                if (entry.ValueKind == JsonValueKind.Null)
+                {
+                    at++;
+                    continue;
+                }
+
+                if (entry.ValueKind != JsonValueKind.String)
+                {
+#if DEBUG
+                    reason = $"\"jacket\"[{at}] is not a string or null";
+#endif
+                    return false;
+                }
+
+                if (!LocalFileAt(folder, "jacket", entry.GetString(), ImageExtensions, out paths[at], out reason))
+                    return false;
+
+                at++;
+            }
+
+            if (string.IsNullOrEmpty(paths[0]))
+            {
+#if DEBUG
+                reason = "\"jacket\"[0] is missing";
+#endif
+                return false;
+            }
+
+            return true;
+        }
+
+        /// <summary>The name: one string or five language strings.</summary>
+        private static bool LocalizedName(JsonElement root, out string[] names, out string reason)
+        {
+            names = null;
+            reason = null;
+
+            if (!root.TryGetProperty("name", out JsonElement token) ||
+                token.ValueKind == JsonValueKind.Null)
+            {
+#if DEBUG
+                reason = "\"name\" is missing";
+#endif
+                return false;
+            }
+
+            if (token.ValueKind == JsonValueKind.String)
+            {
+                string single = token.GetString();
+                if (string.IsNullOrWhiteSpace(single))
+                {
+#if DEBUG
+                    reason = "\"name\" is empty";
+#endif
+                    return false;
+                }
+
+                names = SameName(single);
+                return true;
+            }
+
+            if (token.ValueKind != JsonValueKind.Array)
+            {
+#if DEBUG
+                reason = "\"name\" is not a string or an array";
+#endif
+                return false;
+            }
+
+            var values = new List<string>(5);
+            foreach (JsonElement entry in token.EnumerateArray())
+            {
+                if (entry.ValueKind != JsonValueKind.String ||
+                    string.IsNullOrWhiteSpace(entry.GetString()))
+                {
+#if DEBUG
+                    reason = $"\"name\"[{values.Count}] is not a non-empty string";
+#endif
+                    return false;
+                }
+
+                values.Add(entry.GetString());
+            }
+
+            if (values.Count == 1)
+            {
+                names = SameName(values[0]);
+                return true;
+            }
+
+            if (values.Count == 5)
+            {
+                names = values.ToArray();
+                return true;
+            }
+
+#if DEBUG
+            reason = $"\"name\" has {values.Count} entries, not 1 or 5";
+#endif
+            return false;
+        }
+
+        /// <summary>The same name in all five language slots.</summary>
+        private static string[] SameName(string name)
+        {
+            var names = new string[5];
+            for (int i = 0; i < names.Length; i++) names[i] = name;
+            return names;
         }
 
         /// <summary>A required, non-empty string field.</summary>

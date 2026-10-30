@@ -58,22 +58,19 @@ namespace InFalsusChartLoader
             ushort shownPack = PackIdAt(layer, shown);
             byte difficulty = Memory.U8(layer + _packDifficultyField);
 
-            IntPtr table = IntPtr.Zero;
-            bool hidden = false;
             bool rebuilt = false;
             ushort heldPack = 0;
             bool held = false;
 
+            Diagnostics.Info($"probe: pack screen rebuild begin shown={shown} pack={shownPack} " +
+                             $"packs={PackCount(layer)}");
+
             InProgress = true;
             try
             {
-                bool empty = SongCatalog.EmptyPackListed();
-                table = SongCatalog.HideEmptyPackForBuild();
-                hidden = table != IntPtr.Zero;
-                if (empty && !hidden) Diagnostics.Error(Hooks.EmptyPackBuildFailed);
-                if (empty) SongSelectRefresh.DeselectIfCustomPackSelected();
-
-                if (SongSelectRefresh.SelectedPack(out heldPack) && heldPack != shownPack)
+                if (SongSelectRefresh.SelectedPack(out heldPack) &&
+                    heldPack != shownPack &&
+                    SongCatalog.LivePackExists(shownPack))
                     held = SongSelectRefresh.SetSelectedPack(shownPack);
 
                 ClearOutlines(layer);
@@ -84,20 +81,15 @@ namespace InFalsusChartLoader
                 if (!Invoke(layer, _awakeInfo, "the category screen could not be initialised"))
                     return false;
 
+                Diagnostics.Info($"probe: pack screen awake returned packs={PackCount(layer)}");
+
                 if (held)
                     held = !SongSelectRefresh.SetSelectedPack(heldPack);
 
                 int afterAwake = Memory.I32(layer + _packIndexField);
 
                 int target = PackIndex(layer, shownPack);
-                if (target < 0) target = Clamp(shown, PackCount(layer));
-                if (target < 0)
-                {
-                    Diagnostics.Error(RebuildFailed);
-                    return false;
-                }
-
-                if (Memory.I32(layer + _packIndexField) != target)
+                if (target >= 0 && Memory.I32(layer + _packIndexField) != target)
                     Invoke(layer, _selectInfo, target);
 
                 Diagnostics.Info($"probe: pack screen position shown={shown} pack={shownPack} -> {target} " +
@@ -113,13 +105,12 @@ namespace InFalsusChartLoader
             finally
             {
                 if (held) SongSelectRefresh.SetSelectedPack(heldPack);
-                if (hidden) SongCatalog.RestorePackTable(table);
                 InProgress = false;
             }
 
             if (!rebuilt) return false;
 
-            SongSelectRefresh.NotePackScreenBuilt(hidden);
+            SongSelectRefresh.NotePackScreenBuilt(SongCatalog.PackScreenSignature());
             Diagnostics.Info("probe: pack screen rebuilt through the game's own build");
             return true;
         }
@@ -188,20 +179,15 @@ namespace InFalsusChartLoader
             return Memory.Ptr(items + Offsets.Runtime.ArrayDataOffset + index * sizeof(IntPtr));
         }
 
-        private static int Clamp(int index, int count)
-        {
-            if (count <= 0) return -1;
-            if (index < 0) return 0;
-            return index >= count ? count - 1 : index;
-        }
-
         /// <summary>Puts both card windows on the position the game's own select has just chosen.</summary>
         internal static void SnapScrolls(IntPtr layer)
         {
             if (!ResolveScroll()) return;
+            Diagnostics.Info("probe: snap scrolls begin");
 
             SnapScroll(Memory.Ptr(layer + _topScrollField));
             SnapScroll(Memory.Ptr(layer + _bottomScrollField));
+            Diagnostics.Info("probe: snap scrolls done");
         }
 
         /// <summary>Applies one card window's target offset immediately.</summary>

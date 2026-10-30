@@ -16,10 +16,6 @@ namespace InFalsusChartLoader
         /// <summary>Pack screens built.</summary>
         internal static long PackListsBuilt;
 
-        /// <summary>The one sentence a build reports when the empty pack cannot be left out.</summary>
-        internal const string EmptyPackBuildFailed =
-            "the empty custom pack could not be left out of the category list; it will appear until the scene is entered again";
-
         private static bool InstallPackList()
         {
             IntPtr info = MethodResolver.MethodInfoByRuntime("PackSelectScene", "Awake");
@@ -55,50 +51,47 @@ namespace InFalsusChartLoader
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
         private static void PackListDetour(IntPtr self, IntPtr methodInfo)
         {
+            Diagnostics.Info("probe: pack list detour begin");
+            if (PackSetup.TryGetVisuals(out IntPtr dataAssets))
+            {
+                int field = FieldResolver.Field("PackSelectScene", "packSelectSceneAssets");
+                IntPtr sceneAssets = field >= 0 ? Memory.Ptr(self + field) : IntPtr.Zero;
+                Diagnostics.Info($"probe: pack assets data=0x{dataAssets.ToInt64():X} " +
+                                 $"scene=0x{sceneAssets.ToInt64():X}");
+            }
+
+            if (!Faulted && !PackSetup.SyncSceneVisuals(self))
+            {
+                Diagnostics.Error("the scene's own visual rows could not be filled; the category layer " +
+                                  "was not built");
+                return;
+            }
+
             if (PackScreenRebuild.InProgress)
             {
                 _packListTramp(self, methodInfo);
                 PackListsBuilt++;
                 if (!Faulted) PackScreenRebuild.SnapScrolls(self);
+                Diagnostics.Info("probe: pack list detour done (rebuild)");
                 return;
             }
 
-            IntPtr table = IntPtr.Zero;
-            bool hidden = false;
-
             if (!Faulted)
             {
-                try
-                {
-                    bool empty = SongCatalog.EmptyPackListed();
-                    table = SongCatalog.HideEmptyPackForBuild();
-                    hidden = table != IntPtr.Zero;
-
-                    if (empty && !hidden) Diagnostics.Error(EmptyPackBuildFailed);
-                    if (hidden) SongSelectRefresh.DeselectIfCustomPackSelected();
-                }
-                catch (Exception e)
-                {
-                    Fault(Hook.PackList, e);
-                }
+                try { SongSelectRefresh.DeselectIfGonePackSelected(); }
+                catch (Exception e) { Fault(Hook.PackList, e); }
             }
+            Diagnostics.Info("probe: pack list detour deselect done");
 
-            try
-            {
-                _packListTramp(self, methodInfo);
-                PackListsBuilt++;
-            }
-            finally
-            {
-                if (hidden)
-                {
-                    try { SongCatalog.RestorePackTable(table); }
-                    catch (Exception e) { Fault(Hook.PackList, e); }
-                }
-            }
+            _packListTramp(self, methodInfo);
+            PackListsBuilt++;
+            Diagnostics.Info("probe: pack list detour awake done");
 
-            if (!Faulted) SongSelectRefresh.NotePackScreenBuilt(hidden);
+            if (!Faulted) SongSelectRefresh.NotePackScreenBuilt(SongCatalog.PackScreenSignature());
+            Diagnostics.Info("probe: pack list detour note done");
+
             if (!Faulted) PackScreenRebuild.SnapScrolls(self);
+            Diagnostics.Info("probe: pack list detour snap done");
         }
     }
 }

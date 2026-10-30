@@ -39,6 +39,8 @@ namespace InFalsusChartLoader
 
         private static int _packSceneAccessField = Offsets.Unresolved;
         private static int _packDifficultyField = Offsets.Unresolved;
+        private static int _ihSongArrayField = Offsets.Unresolved;
+        private static int _shSongField = Offsets.Unresolved;
         private static int _packOutlineListField = Offsets.Unresolved;
         private static int _outlinePackField = Offsets.Unresolved;
         private static int _topPackContainerField = Offsets.Unresolved;
@@ -61,7 +63,7 @@ namespace InFalsusChartLoader
         private static bool _titleReady;
         private static bool _titleMissing;
         private static bool _titleFellBack;
-        private static bool _screenEmptyState;
+        private static string _screenSignature;
 
         /// <summary>The largest PackInfo a pack switch will copy.</summary>
         private const int PackInfoLimit = 256;
@@ -81,6 +83,13 @@ namespace InFalsusChartLoader
             {
                 Diagnostics.Error("the current pack could not be read; the song list was not rebuilt");
                 return;
+            }
+
+            if (packId != ushort.MaxValue && !SongCatalog.LivePackExists(packId))
+            {
+                Diagnostics.Info($"probe: refresh pack id={packId} is gone; showing all songs");
+                packId = ushort.MaxValue;
+                _titleFellBack = DeselectPack();
             }
 
             IntPtr fresh = IntPtr.Zero;
@@ -141,7 +150,8 @@ namespace InFalsusChartLoader
                 ShowAllSongsTitle(scene);
             }
 
-            bool rebuildPending = SongCatalog.EmptyPackListed() != _screenEmptyState;
+            bool rebuildPending = _screenSignature != null &&
+                                  SongCatalog.PackScreenSignature() != _screenSignature;
 
             RefreshCards(scene);
             if (!rebuildPending) RefreshPackScreen(layer, fresh, slot);
@@ -299,9 +309,12 @@ namespace InFalsusChartLoader
 
             _packSceneAccessField = FieldResolver.Field("PackSelectScene", "dataAccess");
             _packDifficultyField = FieldResolver.Field("PackSelectScene", "_Gf");
+            _ihSongArrayField = FieldResolver.Field("_iH", "_sDb");
+            _shSongField = FieldResolver.Field("_SH", "_WEb");
             _localizationInfo = MethodResolver.MethodInfoByRuntimeInImage("Str.dll", "Str", "Strings",
                                                                            "GetCurrentLocalization");
             if (_packSceneAccessField < 0 || _packDifficultyField < 0 ||
+                _ihSongArrayField < 0 || _shSongField < 0 ||
                 _packListField < 0 || _packIndexField < 0 ||
                 _packRebuildInfo == IntPtr.Zero ||
                 _localizationInfo == IntPtr.Zero ||
@@ -338,13 +351,15 @@ namespace InFalsusChartLoader
         {
             if (!PreparePackSwitch()) return IntPtr.Zero;
             if (!Memory.LooksLikeObject(layer) || !Memory.LooksLikeObject(info)) return IntPtr.Zero;
-            if (SongCatalog.CustomPackId < 0 ||
-                Memory.U16(info + _ihPackField) != (ushort)SongCatalog.CustomPackId)
-                return IntPtr.Zero;
 
-            IntPtr cachedSongs = Memory.Ptr(info + _ihPackField + Offsets.Pack.Songs);
-            IntPtr liveSongs = SongCatalog.LivePackSongs((ushort)SongCatalog.CustomPackId);
-            if (liveSongs == IntPtr.Zero || cachedSongs == liveSongs) return IntPtr.Zero;
+            ushort packId = Memory.U16(info + _ihPackField);
+            if (!SongCatalog.IsCustomPack(packId)) return IntPtr.Zero;
+
+            IntPtr liveSongs = SongCatalog.LivePackSongs(packId);
+            if (liveSongs == IntPtr.Zero || PackViewCurrent(info, liveSongs)) return IntPtr.Zero;
+
+            Diagnostics.Info($"probe: pack view stale songs={ArrayCount(Memory.Ptr(info + _ihSongArrayField))} " +
+                             $"live={ArrayCount(liveSongs)}");
 
             int size = FieldResolver.ValueSize("PackInfo");
             if (size <= 0 || size > PackInfoLimit)
@@ -354,7 +369,7 @@ namespace InFalsusChartLoader
             }
 
             byte* live = stackalloc byte[size];
-            if (!SongCatalog.CopyPackTo((IntPtr)live, (ushort)SongCatalog.CustomPackId))
+            if (!SongCatalog.CopyPackTo((IntPtr)live, packId))
             {
                 PackSwitchMissing();
                 return IntPtr.Zero;
@@ -378,17 +393,50 @@ namespace InFalsusChartLoader
                 return IntPtr.Zero;
             }
 
-            Diagnostics.Info($"pack view: rebuilt the custom pack's view (id {SongCatalog.CustomPackId})");
+            Diagnostics.Info($"pack view: rebuilt the custom pack's view (id {packId})");
             return fresh;
+        }
+
+        /// <summary>Whether a cached pack view already holds exactly the live pack's songs.</summary>
+        private static bool PackViewCurrent(IntPtr info, IntPtr liveSongs)
+        {
+            IntPtr songs = Memory.Ptr(info + _ihSongArrayField);
+            if (!Memory.LooksLikeObject(songs)) return false;
+
+            int count = Memory.I32(songs + Offsets.Runtime.ArrayLength);
+            int live = Memory.I32(liveSongs + Offsets.Runtime.ArrayLength);
+            if (count != live) return false;
+
+            for (int i = 0; i < live; i++)
+            {
+                ushort id = Memory.U16(liveSongs + Offsets.Runtime.ArrayDataOffset + i * 2);
+                if (!PackViewHolds(songs, count, id)) return false;
+            }
+
+            return true;
+        }
+
+        /// <summary>Whether one cached pack view holds a song id.</summary>
+        private static bool PackViewHolds(IntPtr songs, int count, ushort id)
+        {
+            for (int i = 0; i < count; i++)
+            {
+                IntPtr song = Memory.Ptr(songs + Offsets.Runtime.ArrayDataOffset + i * IntPtr.Size);
+                if (!Memory.LooksLikeObject(song)) continue;
+                if (Memory.U16(song + _shSongField + Offsets.Song.Id) == id) return true;
+            }
+
+            return false;
         }
 
         /// <summary>Puts a rebuilt custom pack view where the pack screen looks it up.</summary>
         internal static void AdoptPackView(IntPtr layer, IntPtr fresh)
         {
             if (fresh == IntPtr.Zero || !PreparePackSwitch()) return;
-            if (SongCatalog.CustomPackId < 0) return;
 
-            ReplacePackView(layer, (ushort)SongCatalog.CustomPackId, fresh);
+            ushort packId = Memory.U16(fresh + _ihPackField);
+            if (!SongCatalog.IsCustomPack(packId)) return;
+            ReplacePackView(layer, packId, fresh);
         }
 
         /// <summary>Resolves what the category screen's pack list needs, or says once why it cannot be refreshed.</summary>
@@ -452,7 +500,7 @@ namespace InFalsusChartLoader
         internal const string OutlineFailed =
             "the pack list's counts could not be refreshed in this build; a reloaded pack will keep the counts it was first shown with";
 
-        /// <summary>Updates the category screen's entry for the custom pack, whichever pack is shown.</summary>
+        /// <summary>Updates every category entry that belongs to one of this mod's packs.</summary>
         internal static void RefreshPackOutline()
         {
             if (!PreparePackOutline()) return;
@@ -462,10 +510,13 @@ namespace InFalsusChartLoader
 
             IntPtr layer = Memory.Ptr(scene + _packLayerField);
             if (!Memory.LooksLikeObject(layer)) return;
-            if (SongCatalog.CustomPackId < 0) return;
 
             IntPtr outlines = Memory.Ptr(layer + _packOutlineListField);
             if (!Memory.TryList(outlines, out IntPtr items, out int count)) return;
+
+            byte difficulty = Memory.U8(layer + _packDifficultyField);
+            IntPtr* args = stackalloc IntPtr[1];
+            args[0] = (IntPtr)(&difficulty);
 
             for (int i = 0; i < count; i++)
             {
@@ -474,21 +525,19 @@ namespace InFalsusChartLoader
 
                 IntPtr info = Memory.Ptr(outline + _outlinePackField);
                 if (!Memory.LooksLikeObject(info)) continue;
-                if (Memory.U16(info + _ihPackField) != (ushort)SongCatalog.CustomPackId) continue;
+
+                ushort packId = Memory.U16(info + _ihPackField);
+                if (!SongCatalog.IsCustomPack(packId)) continue;
 
                 IntPtr fresh = PackViewFor(layer, info);
-                if (fresh == IntPtr.Zero) return;
+                if (fresh == IntPtr.Zero) continue;
 
                 Memory.WritePtr(outline + _outlinePackField, fresh);
-                ReplacePackView(layer, (ushort)SongCatalog.CustomPackId, fresh);
+                ReplacePackView(layer, packId, fresh);
                 RefreshPackCards(layer, fresh);
 
                 Diagnostics.Info($"probe: pack counts old={ArrayCount(Memory.Ptr(info + _ihPackField + Offsets.Pack.Songs))} " +
                                  $"new={ArrayCount(Memory.Ptr(fresh + _ihPackField + Offsets.Pack.Songs))}");
-
-                byte difficulty = Memory.U8(layer + _packDifficultyField);
-                IntPtr* args = stackalloc IntPtr[1];
-                args[0] = (IntPtr)(&difficulty);
 
                 IntPtr raised = IntPtr.Zero;
                 Il2CppInterop.Runtime.IL2CPP.il2cpp_runtime_invoke(_outlineUpdateInfo, outline,
@@ -496,25 +545,31 @@ namespace InFalsusChartLoader
                 if (raised != IntPtr.Zero)
                     Diagnostics.Error("the pack list's counts could not be refreshed: " + Raised.Text(raised));
                 else
-                    Diagnostics.Info($"probe: pack outline refreshed (id {SongCatalog.CustomPackId})");
-                return;
+                    Diagnostics.Info($"probe: pack outline refreshed (id {packId})");
             }
+
+            Hooks.ApplyPackMasks(layer);
+            Hooks.ApplyPackButtonMask(scene);
         }
 
-        /// <summary>Rebinds the pack screen's small cards for the custom pack and rewrites their texts.</summary>
+        /// <summary>Rebinds the pack screen's small cards for one custom pack and rewrites their texts.</summary>
         private static void RefreshPackCards(IntPtr layer, IntPtr fresh)
         {
-            if (fresh == IntPtr.Zero || SongCatalog.CustomPackId < 0) return;
+            if (fresh == IntPtr.Zero) return;
+
+            ushort packId = Memory.U16(fresh + _ihPackField);
+            if (!SongCatalog.IsCustomPack(packId)) return;
             if (!PreparePackCards()) return;
 
             int touched = 0;
-            touched += RebindPackCards(layer, _topPackContainerField, fresh);
-            touched += RebindPackCards(layer, _bottomPackContainerField, fresh);
-            Diagnostics.Info($"probe: pack cards refreshed (id {SongCatalog.CustomPackId}, cards={touched})");
+            touched += RebindPackCards(layer, _topPackContainerField, packId, fresh);
+            touched += RebindPackCards(layer, _bottomPackContainerField, packId, fresh);
+            Hooks.ApplyPackMasks(layer);
+            Diagnostics.Info($"probe: pack cards refreshed (id {packId}, cards={touched})");
         }
 
         /// <summary>Rebinds one scroll container's visible cards, then lets the container rewrite them.</summary>
-        private static int RebindPackCards(IntPtr layer, int field, IntPtr fresh)
+        private static int RebindPackCards(IntPtr layer, int field, ushort packId, IntPtr fresh)
         {
             if (field < 0) return 0;
 
@@ -532,7 +587,7 @@ namespace InFalsusChartLoader
 
                 IntPtr info = Memory.Ptr(card + _cardPackField);
                 if (!Memory.LooksLikeObject(info)) continue;
-                if (Memory.U16(info + _ihPackField) != (ushort)SongCatalog.CustomPackId) continue;
+                if (Memory.U16(info + _ihPackField) != packId) continue;
 
                 Memory.WritePtr(card + _cardPackField, fresh);
                 touched++;
@@ -573,16 +628,16 @@ namespace InFalsusChartLoader
 
             IntPtr info = Memory.Ptr(items + at * IntPtr.Size);
             if (!Memory.LooksLikeObject(info)) return;
-            if (SongCatalog.CustomPackId < 0 ||
-                Memory.U16(info + _ihPackField) != (ushort)SongCatalog.CustomPackId)
-                return;
+
+            ushort packId = Memory.U16(info + _ihPackField);
+            if (!SongCatalog.IsCustomPack(packId)) return;
 
             IntPtr fresh = PackViewFor(layer, info);
             if (fresh == IntPtr.Zero) return;
 
             Memory.WritePtr(items + at * IntPtr.Size, fresh);
             RefreshPackScreen(layer, fresh, at);
-            Diagnostics.Info($"probe: displayed pack refreshed (id {SongCatalog.CustomPackId})");
+            Diagnostics.Info($"probe: displayed pack refreshed (id {packId})");
         }
 
         /// <summary>The game's current localization, or -1 when it cannot be asked.</summary>
@@ -747,12 +802,15 @@ namespace InFalsusChartLoader
             return true;
         }
 
-        /// <summary>Puts the save back on all songs when it points at this mod's pack.</summary>
-        internal static void DeselectIfCustomPackSelected()
+        /// <summary>Puts the save back on all songs when it points at a pack that is no longer live.</summary>
+        internal static void DeselectIfGonePackSelected()
         {
             if (!Resolve()) return;
-            if (CurrentPackId(out ushort selected) && selected == (ushort)SongCatalog.CustomPackId)
-                DeselectPack();
+            if (!CurrentPackId(out ushort selected)) return;
+            if (selected == ushort.MaxValue) return;
+            if (SongCatalog.LivePackExists(selected)) return;
+
+            DeselectPack();
         }
 
         /// <summary>The pack the save has selected.</summary>
@@ -798,8 +856,8 @@ namespace InFalsusChartLoader
             return true;
         }
 
-        /// <summary>Records what the category screen was built with: the empty pack left out or not.</summary>
-        internal static void NotePackScreenBuilt(bool emptyHidden) => _screenEmptyState = emptyHidden;
+        /// <summary>Records what the category screen was built from.</summary>
+        internal static void NotePackScreenBuilt(string screenSignature) => _screenSignature = screenSignature;
 
         /// <summary>The one sentence reported when an empty pack could not be deselected.</summary>
         private const string DeselectFailedText =
@@ -1008,7 +1066,7 @@ namespace InFalsusChartLoader
         }
 
         /// <summary>The live song-select scene, or zero.</summary>
-        private static IntPtr Scene()
+        internal static IntPtr Scene()
         {
             IntPtr scene = Hooks.SongSelect;
             if (!JacketFactory.IsAlive(scene)) return IntPtr.Zero;

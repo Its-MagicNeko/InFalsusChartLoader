@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 
 namespace InFalsusChartLoader
 {
@@ -78,9 +79,212 @@ namespace InFalsusChartLoader
                     stride, stride);
             }
 
+            int backingFrom = Hooks.BackingRow(table, count, stride);
+            if (backingFrom < 0)
+            {
+                Diagnostics.Error("no shipped pack row has a backing picture; the custom pack would have no " +
+                                  "background");
+                NoRow();
+                return false;
+            }
+
+            int backingSlot = FieldResolver.Field("SongSelectPackAssets", "BackingImageNonCompleted");
+            int backingDoneSlot = FieldResolver.Field("SongSelectPackAssets", "BackingImageCompleted");
+            if (backingSlot < 0 || backingDoneSlot < 0)
+            {
+                Diagnostics.Error("the pack backing slots could not be read by name in this build; the custom " +
+                                  "pack would have no background");
+                NoRow();
+                return false;
+            }
+
+            IntPtr sourceBacking = table + Offsets.Runtime.ArrayDataOffset + backingFrom * stride;
+            IntPtr destination = grown + Offsets.Runtime.ArrayDataOffset + packIndex * stride;
+            Memory.WritePtr(destination + backingSlot, Memory.Ptr(sourceBacking + backingSlot));
+            Memory.WritePtr(destination + backingDoneSlot, Memory.Ptr(sourceBacking + backingDoneSlot));
+
             Memory.WritePtr(packAssets + PackAssetsTable, grown);
             Diagnostics.Info($"pack visuals extended to {packIndex + 1} rows, " +
                              $"row {packIndex} copying row {from}, {stride} bytes");
+            return true;
+        }
+
+        /// <summary>Gives every live custom pack its row, name, cover and backing.</summary>
+        internal static bool ApplyPackAssets(IntPtr packData, List<PackManifest> packs)
+        {
+            if (SongCatalog.CustomPackId < 0 && packs.Count == 0) return true;
+
+            if (!TryGetVisuals(out IntPtr packAssets))
+            {
+                Diagnostics.Error("the pack visual table could not be reached; the custom packs were not applied");
+                return false;
+            }
+
+            var live = new List<int>();
+            if (SongCatalog.CustomPackId >= 0)
+            {
+                live.Add(SongCatalog.CustomPackId);
+                if (!ExtendVisuals(packAssets, SongCatalog.CustomPackId)) return false;
+                if (!SetPackName(SongCatalog.CustomPackId, SongCatalog.PackName))
+                {
+                    Diagnostics.Error("the custom pack's name could not be written; the custom packs were " +
+                                      "not applied");
+                    return false;
+                }
+            }
+
+            foreach (PackManifest pack in packs)
+            {
+                if (pack.PackId < 0) continue;
+
+                live.Add(pack.PackId);
+                if (!ExtendVisuals(packAssets, pack.PackId)) return false;
+                if (!SetPackName(pack.PackId, pack.Names))
+                {
+                    Diagnostics.Error("the custom pack's name could not be written; the custom packs were " +
+                                      "not applied");
+                    return false;
+                }
+
+                if (!FillPackVisuals(packAssets, pack.PackId, pack.JacketPaths, out string reason))
+                {
+                    Diagnostics.Error($"the pack '{pack.Name}' could not be given its pictures: {reason}");
+                    return false;
+                }
+            }
+
+            PackVisuals.Prune(live);
+            return true;
+        }
+
+        /// <summary>Puts a pack's five pictures on its row, using clones of the game's own materials.</summary>
+        internal static bool FillPackVisuals(IntPtr packAssets, int packId, string[] jacketPaths,
+                                             out string reason) =>
+            PackVisuals.Rebuild(packAssets, packId, jacketPaths, out reason);
+
+        /// <summary>Gives the pack screen's own visual tables the rows the reload built.</summary>
+        internal static bool SyncSceneVisuals(IntPtr scene)
+        {
+            if (!Memory.LooksLikeObject(scene)) return false;
+            if (SongCatalog.CustomPackCount == 0) return true;
+            if (!TryGetVisuals(out IntPtr dataAssets)) return false;
+
+            int sceneField = FieldResolver.Field("PackSelectScene", "packSelectSceneAssets");
+            if (sceneField < 0)
+            {
+                Diagnostics.Error("PackSelectScene.packSelectSceneAssets could not be read by name in this " +
+                                  "build; the custom rows were not given to the scene's visuals");
+                return false;
+            }
+
+            var seen = new HashSet<IntPtr>();
+            IntPtr sceneAssets = Memory.Ptr(scene + sceneField);
+
+            int prefabField = FieldResolver.Field("PackSelectScene", "packOutlineMemberPrefab");
+            if (prefabField < 0)
+            {
+                Diagnostics.Error("PackSelectScene.packOutlineMemberPrefab could not be read by name in this " +
+                                  "build; the custom rows were not given to the scene's visuals");
+                return false;
+            }
+
+            IntPtr prefab = Memory.Ptr(scene + prefabField);
+            int prefabAssetsField = FieldResolver.Field("PackOutlineMember", "packSelectSceneAssets");
+            if (!Memory.LooksLikeObject(prefab) || prefabAssetsField < 0)
+            {
+                Diagnostics.Error("PackOutlineMember.packSelectSceneAssets could not be read in this build; " +
+                                  "the custom rows were not given to the scene's visuals");
+                return false;
+            }
+
+            IntPtr prefabAssets = Memory.Ptr(prefab + prefabAssetsField);
+
+            int visualField = FieldResolver.Field("PackSelectScene", "packVisualMemberLarge");
+            if (visualField < 0)
+            {
+                Diagnostics.Error("PackSelectScene.packVisualMemberLarge could not be read by name in this " +
+                                  "build; the custom rows were not given to the scene's visuals");
+                return false;
+            }
+
+            IntPtr visual = Memory.Ptr(scene + visualField);
+            int largeAssetsField = FieldResolver.Field("PackVisualMemberLarge", "packSelectSceneAssets");
+            if (!Memory.LooksLikeObject(visual) || largeAssetsField < 0)
+            {
+                Diagnostics.Error("PackVisualMemberLarge.packSelectSceneAssets could not be read in this " +
+                                  "build; the custom rows were not given to the scene's visuals");
+                return false;
+            }
+
+            IntPtr largeAssets = Memory.Ptr(visual + largeAssetsField);
+
+            if (!SyncOne(sceneAssets, dataAssets, seen)) return false;
+            if (!SyncOne(prefabAssets, dataAssets, seen)) return false;
+            if (!SyncOne(largeAssets, dataAssets, seen)) return false;
+
+            return true;
+        }
+
+        /// <summary>Copies the mod's rows into one pack-screen visual table.</summary>
+        private static bool SyncOne(IntPtr sceneAssets, IntPtr dataAssets, HashSet<IntPtr> seen)
+        {
+            if (!Memory.LooksLikeObject(sceneAssets)) return true;
+            if (sceneAssets == dataAssets) return true;
+            if (!seen.Add(sceneAssets)) return true;
+
+            IntPtr dataTable = Memory.Ptr(dataAssets + PackAssetsTable);
+            if (!Memory.LooksLikeObject(dataTable))
+            {
+                Diagnostics.Error("the pack visual table could not be read; the custom rows were not given " +
+                                  "to the scene's visuals");
+                return false;
+            }
+
+            int dataCount = Memory.I32(dataTable + Offsets.Runtime.ArrayLength);
+            int stride = dataCount > 0
+                ? (int)(Il2CppInterop.Runtime.IL2CPP.il2cpp_array_get_byte_length(dataTable) / dataCount)
+                : 0;
+            if (stride <= 0)
+            {
+                Diagnostics.Error("the pack visual table has no element size; the custom rows were not given " +
+                                  "to the scene's visuals");
+                return false;
+            }
+
+            foreach (int id in SongCatalog.LiveCustomPackIds())
+            {
+                if (id < 0 || id >= dataCount)
+                {
+                    Diagnostics.Error("a custom pack row could not be taken from the reloaded visual table; " +
+                                      "the custom rows were not given to the scene's visuals");
+                    return false;
+                }
+
+                if (!ExtendVisuals(sceneAssets, id))
+                {
+                    Diagnostics.Error("a row of the scene's visuals could not be grown");
+                    return false;
+                }
+
+                IntPtr sceneTable = Memory.Ptr(sceneAssets + PackAssetsTable);
+                int sceneCount = Memory.LooksLikeObject(sceneTable)
+                    ? Memory.I32(sceneTable + Offsets.Runtime.ArrayLength)
+                    : 0;
+                int sceneStride = sceneCount > 0
+                    ? (int)(Il2CppInterop.Runtime.IL2CPP.il2cpp_array_get_byte_length(sceneTable) / sceneCount)
+                    : 0;
+                if (sceneStride != stride || id >= sceneCount)
+                {
+                    Diagnostics.Error("a row of the scene's visuals does not match the reloaded visual table");
+                    return false;
+                }
+
+                Buffer.MemoryCopy(
+                    (void*)(dataTable + Offsets.Runtime.ArrayDataOffset + id * stride),
+                    (void*)(sceneTable + Offsets.Runtime.ArrayDataOffset + id * stride),
+                    stride, stride);
+            }
+
             return true;
         }
 
@@ -169,6 +373,7 @@ namespace InFalsusChartLoader
 
         private static readonly int ValueEnglish = 0 * IntPtr.Size;
         private static readonly int ValueJapanese = 1 * IntPtr.Size;
+        private static readonly int ValueKorean = 2 * IntPtr.Size;
         private static readonly int ValueTraditionalChinese = 3 * IntPtr.Size;
         private static readonly int ValueSimplifiedChinese = 4 * IntPtr.Size;
 
@@ -178,23 +383,31 @@ namespace InFalsusChartLoader
         /// </summary>
         private static int _mappingOffset = int.MinValue;
 
-        /// <summary>Gives the pack a name.</summary>
+        /// <summary>Which text write this is.</summary>
         private enum TextWhat { PackName, SongText }
 
-        internal static bool SetPackName(int packId, string name)
+        /// <summary>Gives the pack a name in all five language slots.</summary>
+        internal static bool SetPackName(int packId, string name) => SetPackName(packId, SameName(name));
+
+        /// <summary>Gives the pack a name in all five language slots.</summary>
+        internal static bool SetPackName(int packId, string[] names)
         {
             // The field is read here, after `ResolveFields` — not at the call site, for the reason
             // `SongText` gives.
             if (!ResolveFields()) return false;
 
-            return SetText(PackIdTypeMapping, packId, name, TextWhat.PackName);
+            return SetText(PackIdTypeMapping, packId, names, TextWhat.PackName);
         }
 
         /// <summary>Which text write this is.</summary>
         internal enum SongText { Title, Artist, Illustrator }
 
         /// <summary>Gives a song a title, artist, or illustrator.</summary>
-        internal static bool SetSongText(SongText which, int songId, string text)
+        internal static bool SetSongText(SongText which, int songId, string text) =>
+            SetSongText(which, songId, SameName(text));
+
+        /// <summary>Gives a song a title in all five language slots.</summary>
+        internal static bool SetSongText(SongText which, int songId, string[] names)
         {
             if (!ResolveFields()) return false;
 
@@ -202,13 +415,22 @@ namespace InFalsusChartLoader
                              : which == SongText.Artist ? SongArtistTypeMapping
                              : SongIllustratorTypeMapping;
 
-            return SetText(mappingField, songId, text, TextWhat.SongText);
+            return SetText(mappingField, songId, names, TextWhat.SongText);
         }
 
+        /// <summary>The same string in all five language slots.</summary>
+        private static string[] SameName(string text) => new[] { text, text, text, text, text };
+
         /// <summary>The one text write.</summary>
-        private static bool SetText(int mappingField, int id, string text, TextWhat what)
+        private static bool SetText(int mappingField, int id, string[] names, TextWhat what)
         {
             if (!ResolveFields()) return false;
+
+            if (names == null || names.Length != 5)
+            {
+                NotWritten(what, "the name does not have five language slots");
+                return false;
+            }
 
             IntPtr klass = FieldResolver.ClassPointer("DataAccess");
             if (klass == IntPtr.Zero) return false;
@@ -240,9 +462,10 @@ namespace InFalsusChartLoader
                 return false;
             }
 
-            if (!Insert(table, id, text)) return false;
+            if (!Insert(table, id, names)) return false;
 
-            Diagnostics.Info($"localisation +0x{mappingField:X}: entry {id} set to '{text}'");
+            Diagnostics.Info($"localisation +0x{mappingField:X}: entry {id} set to " +
+                             $"'{string.Join("/", names)}'");
             return true;
         }
 
@@ -301,18 +524,24 @@ namespace InFalsusChartLoader
         }
 
         /// <summary>Writes one entry in the text table.</summary>
-        private static unsafe bool Insert(IntPtr table, int packId, string name)
+        private static unsafe bool Insert(IntPtr table, int packId, string[] names)
         {
             ushort id = (ushort)packId;
 
             byte[] raw = new byte[TextMappingValuesSize];
             fixed (byte* values = raw)
             {
-                IntPtr text = Il2CppInterop.Runtime.IL2CPP.ManagedStringToIl2Cpp(name);
-                *(IntPtr*)(values + ValueEnglish) = text;
-                *(IntPtr*)(values + ValueJapanese) = text;
-                *(IntPtr*)(values + ValueTraditionalChinese) = text;
-                *(IntPtr*)(values + ValueSimplifiedChinese) = text;
+                IntPtr simplified = Il2CppInterop.Runtime.IL2CPP.ManagedStringToIl2Cpp(names[0]);
+                IntPtr traditional = Il2CppInterop.Runtime.IL2CPP.ManagedStringToIl2Cpp(names[1]);
+                IntPtr english = Il2CppInterop.Runtime.IL2CPP.ManagedStringToIl2Cpp(names[2]);
+                IntPtr japanese = Il2CppInterop.Runtime.IL2CPP.ManagedStringToIl2Cpp(names[3]);
+                IntPtr korean = Il2CppInterop.Runtime.IL2CPP.ManagedStringToIl2Cpp(names[4]);
+
+                *(IntPtr*)(values + ValueEnglish) = english;
+                *(IntPtr*)(values + ValueJapanese) = japanese;
+                *(IntPtr*)(values + ValueKorean) = korean;
+                *(IntPtr*)(values + ValueTraditionalChinese) = traditional;
+                *(IntPtr*)(values + ValueSimplifiedChinese) = simplified;
 
                 IntPtr* args = stackalloc IntPtr[2];
                 args[0] = (IntPtr)(&id);

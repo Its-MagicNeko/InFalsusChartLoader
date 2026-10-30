@@ -75,6 +75,11 @@ namespace InFalsusChartLoader
             }
 
             _packViewTramp(self, layer, info, index, direction, methodInfo);
+            PackVisual = self;
+            PackScene = layer;
+
+            ApplyPackMask(self);
+            ApplyPackMasks(layer);
         }
     }
 }

@@ -76,15 +76,22 @@ namespace InFalsusChartLoader
             }
         }
 
-        /// <summary>Imports every complete chart folder under <paramref name="root"/>.</summary>
-        internal static List<ChartInfo> Import(string root, Func<ChartInfo, string> validateCharts,
-                                               List<string> skipped = null)
+        /// <summary>The songs and the packs one scan of the charts folder produced.</summary>
+        internal sealed class ImportResult
         {
-            var imported = new List<ChartInfo>();
+            internal readonly List<ChartInfo> Songs = new List<ChartInfo>();
+            internal readonly List<PackManifest> Packs = new List<PackManifest>();
+        }
+
+        /// <summary>Imports every complete chart folder under <paramref name="root"/>.</summary>
+        internal static ImportResult Import(string root, Func<ChartInfo, string> validateCharts,
+                                            List<string> skipped = null)
+        {
+            var result = new ImportResult();
             if (string.IsNullOrEmpty(root) || !Directory.Exists(root))
             {
                 Diagnostics.Warn($"no {FolderName} folder at {root}; nothing to load");
-                return imported;
+                return result;
             }
 
             string[] folders;
@@ -96,14 +103,46 @@ namespace InFalsusChartLoader
             catch (Exception e)
             {
                 Diagnostics.Warn($"{root} could not be listed: {Diagnostics.Describe(e)}");
-                return imported;
+                return result;
             }
+
+            var packIds = new HashSet<string>(StringComparer.Ordinal);
+            var packNames = new HashSet<string>(StringComparer.Ordinal);
 
             foreach (string folder in folders)
             {
                 string name = Path.GetFileName(folder);
 
-                if (!ChartInfoReader.TryRead(folder, out ChartInfo info, out string reason))
+                if (ChartInfoReader.TryReadPack(folder, out PackManifest pack, out bool isPack, out string reason))
+                {
+                    if (!packIds.Add(pack.Id))
+                    {
+                        Diagnostics.Warn($"pack folder '{name}' skipped: the pack id '{pack.Id}' is already used");
+                        skipped?.Add(name);
+                        continue;
+                    }
+
+                    if (!packNames.Add(pack.Name))
+                    {
+                        Diagnostics.Warn($"pack folder '{name}' skipped: the pack name '{pack.Name}' is already used");
+                        skipped?.Add(name);
+                        continue;
+                    }
+
+                    ImportPackSongs(pack, result, validateCharts, skipped);
+                    result.Packs.Add(pack);
+                    Diagnostics.Info($"pack folder '{name}': '{pack.Name}' ({pack.Id})");
+                    continue;
+                }
+
+                if (isPack)
+                {
+                    Diagnostics.Warn($"pack folder '{name}' skipped: {reason}");
+                    skipped?.Add(name);
+                    continue;
+                }
+
+                if (!ChartInfoReader.TryRead(folder, out ChartInfo info, out reason))
                 {
                     Diagnostics.Warn($"chart folder '{name}' skipped: {reason}");
                     skipped?.Add(name);
@@ -120,11 +159,62 @@ namespace InFalsusChartLoader
 
                 Diagnostics.Info($"chart folder '{name}': '{info.Name}' by {info.Composer}, " +
                                  $"{Levels(info)}");
-                imported.Add(info);
+                result.Songs.Add(info);
             }
 
-            imported.Sort((left, right) => StringComparer.Ordinal.Compare(left.BaseName, right.BaseName));
-            return imported;
+            result.Songs.Sort((left, right) => StringComparer.Ordinal.Compare(left.BaseName, right.BaseName));
+            result.Packs.Sort((left, right) => StringComparer.Ordinal.Compare(left.Id, right.Id));
+            return result;
+        }
+
+        /// <summary>Imports the direct song folders under one pack root.</summary>
+        private static void ImportPackSongs(PackManifest pack, ImportResult result,
+                                            Func<ChartInfo, string> validateCharts, List<string> skipped)
+        {
+            string[] folders;
+            try
+            {
+                folders = Directory.GetDirectories(pack.Folder);
+                Array.Sort(folders, StringComparer.OrdinalIgnoreCase);
+            }
+            catch (Exception e)
+            {
+                Diagnostics.Warn($"pack folder '{pack.FolderName}' could not be listed: {Diagnostics.Describe(e)}");
+                return;
+            }
+
+            foreach (string folder in folders)
+            {
+                string name = Path.GetFileName(folder);
+
+                if (ChartInfoReader.IsPackFolder(folder))
+                {
+                    Diagnostics.Warn($"chart folder '{name}' in pack '{pack.FolderName}' skipped: " +
+                                     "a pack root is not accepted inside a pack");
+                    skipped?.Add(name);
+                    continue;
+                }
+
+                if (!ChartInfoReader.TryRead(folder, out ChartInfo info, out string reason))
+                {
+                    Diagnostics.Warn($"chart folder '{name}' in pack '{pack.FolderName}' skipped: {reason}");
+                    skipped?.Add(name);
+                    continue;
+                }
+
+                reason = validateCharts(info);
+                if (reason != null)
+                {
+                    Diagnostics.Warn($"chart folder '{name}' in pack '{pack.FolderName}' skipped: {reason}");
+                    skipped?.Add(name);
+                    continue;
+                }
+
+                info.Pack = pack;
+                result.Songs.Add(info);
+                Diagnostics.Info($"chart folder '{name}' in pack '{pack.FolderName}': '{info.Name}' by " +
+                                 $"{info.Composer}, {Levels(info)}");
+            }
         }
 
         /// <summary>The four ratings for a log line, with <c>-</c> for a difficulty left out.</summary>
