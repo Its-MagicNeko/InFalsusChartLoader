@@ -160,6 +160,7 @@ namespace InFalsusChartLoader
             internal static int Id = Unresolved;     // PackId (ushort)
             internal static int Slug = Unresolved;   // string
             internal static int Songs = Unresolved;  // SongId[]
+            internal static int ExternalURL = Unresolved; // string, DLC link
         }
 
         private static bool _resolved;
@@ -202,6 +203,7 @@ namespace InFalsusChartLoader
             ok &= (Pack.Id = FieldResolver.Field("PackInfo", "Id")) >= 0;
             ok &= (Pack.Slug = FieldResolver.Field("PackInfo", "Slug")) >= 0;
             ok &= (Pack.Songs = FieldResolver.Field("PackInfo", "SongIds")) >= 0;
+            Pack.ExternalURL = FieldResolver.Lookup("PackInfo", "ExternalURL");
 
             if (ok)
             {

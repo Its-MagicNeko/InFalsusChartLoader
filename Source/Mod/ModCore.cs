@@ -12,6 +12,9 @@ namespace InFalsusChartLoader
         /// <summary>What was imported, waiting for the game's data to exist so it can be registered.</summary>
         private static List<ChartInfo> _imported = new List<ChartInfo>();
 
+        /// <summary>The pack roots the last import found.</summary>
+        private static List<PackManifest> _importedPacks = new List<PackManifest>();
+
         private static bool _registered;
 
         /// <summary>Whether the first registration has been attempted.</summary>
@@ -24,7 +27,11 @@ namespace InFalsusChartLoader
         internal static void MarkRegistered() => _registered = true;
 
         /// <summary>Keeps the current model in step with what the reloader applied.</summary>
-        internal static void Adopt(List<ChartInfo> charts) => _imported = charts;
+        internal static void Adopt(List<ChartInfo> charts, List<PackManifest> packs)
+        {
+            _imported = charts;
+            _importedPacks = packs;
+        }
 
 #if DEBUG
         /// <summary>Frames seen, for the probe's timer.</summary>
@@ -54,8 +61,10 @@ namespace InFalsusChartLoader
                 string root = ChartLibrary.Locate();
                 Diagnostics.Info($"charts folder: {root}");
 
-                _imported = ChartLibrary.Import(root, Validate);
-                Diagnostics.Load($"charts: {_imported.Count} imported");
+                ChartLibrary.ImportResult imported = ChartLibrary.Import(root, Validate);
+                _imported = imported.Songs;
+                _importedPacks = imported.Packs;
+                Diagnostics.Load($"charts: {_imported.Count} imported, {_importedPacks.Count} pack(s)");
 
                 Reload.Start(root);
 
@@ -70,6 +79,9 @@ namespace InFalsusChartLoader
                 Diagnostics.Error($"chart loading failed: {Diagnostics.Describe(e)}");
             }
         }
+
+        /// <summary>Keeps the pack screen's live alpha mask on after the game's material pass.</summary>
+        internal static void LateUpdate() => Hooks.TickPackMask();
 
         /// <summary>Registers the songs once the game's tables exist.</summary>
         internal static void Update()
@@ -91,25 +103,14 @@ namespace InFalsusChartLoader
                     return;
                 }
 
+                if (_imported.Count == 0 && _importedPacks.Count == 0)
+                {
+                    _registered = true;
+                    return;
+                }
+
                 if (_imported.Count == 0)
                 {
-                    if (SongCatalog.SetupEmptyPack(packData))
-                    {
-                        if (PackSetup.TryGetVisuals(out IntPtr emptyVisuals))
-                            PackSetup.ExtendVisuals(emptyVisuals, SongCatalog.CustomPackId);
-                        else
-                            Diagnostics.Warn("the pack visual table could not be reached");
-
-                        PackSetup.RefreshLookup(packData);
-                        PackSetup.SetPackName(SongCatalog.CustomPackId, SongCatalog.PackName);
-                    }
-                    else
-                    {
-                        Diagnostics.Error("the custom pack could not be prepared while no charts are loaded; " +
-                                          "a chart added in the song select will not show its category until " +
-                                          "the scene is entered again");
-                    }
-
                     _registered = true;
                     return;
                 }
@@ -137,29 +138,13 @@ namespace InFalsusChartLoader
                     return;
                 }
 
-                int added = SongCatalog.Inject(songData, packData, ready);
+                int added = SongCatalog.Inject(songData, packData, ready, _importedPacks);
                 _registered = true;
 
                 if (added == 0)
                 {
                     Diagnostics.Error("the custom songs could not be added to the game's song list");
                     return;
-                }
-
-                if (SongCatalog.CustomPackId < 0)
-                {
-                    Diagnostics.Error("the custom pack could not be added; the custom songs are in the " +
-                                      "song list but have no pack of their own");
-                }
-                else
-                {
-                    if (PackSetup.TryGetVisuals(out IntPtr packAssets))
-                        PackSetup.ExtendVisuals(packAssets, SongCatalog.CustomPackId);
-                    else
-                        Diagnostics.Warn("the pack visual table could not be reached");
-
-                    PackSetup.RefreshLookup(packData);
-                    PackSetup.SetPackName(SongCatalog.CustomPackId, SongCatalog.PackName);
                 }
 
                 CustomResults.Prepare();
@@ -181,6 +166,7 @@ namespace InFalsusChartLoader
         /// <summary>Stops every detour. The loader calls this once, on the way out.</summary>
         internal static void Shutdown()
         {
+            PackVisuals.ReleaseAll();
             Hooks.Uninstall();
         }
 

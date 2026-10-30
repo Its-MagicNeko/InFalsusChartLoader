@@ -24,6 +24,12 @@ namespace InFalsusChartLoader
         /// <summary>`SongSelectPackAssets.PackSelectNonCompleted` — the small-card material slot.</summary>
         private static int RowSmallCard = Offsets.Unresolved;
 
+        /// <summary>`SongSelectPackAssets.BackingImageNonCompleted` — the backing material slot.</summary>
+        private static int RowBacking = Offsets.Unresolved;
+
+        /// <summary>`SongSelectPackAssets.BackingImageCompleted` — the completed backing slot.</summary>
+        private static int RowBackingDone = Offsets.Unresolved;
+
         private static bool _fieldsResolved;
 
         private static bool _fieldsMissing;
@@ -41,10 +47,12 @@ namespace InFalsusChartLoader
             ViewModelDifficulty = FieldResolver.Field("_SH", "_xEb");
             RowLargeCard = FieldResolver.Field("SongSelectPackAssets", "PackSelectLargeNonCompleted");
             RowSmallCard = FieldResolver.Field("SongSelectPackAssets", "PackSelectNonCompleted");
+            RowBacking = FieldResolver.Field("SongSelectPackAssets", "BackingImageNonCompleted");
+            RowBackingDone = FieldResolver.Field("SongSelectPackAssets", "BackingImageCompleted");
 
             if (PackDataAccess < 0 || ViewModelSong < 0 || CardsField < 0 ||
                 CardViewModel < 0 || ViewModelDifficulty < 0 ||
-                RowLargeCard < 0 || RowSmallCard < 0)
+                RowLargeCard < 0 || RowSmallCard < 0 || RowBacking < 0 || RowBackingDone < 0)
             {
                 _fieldsMissing = true;
                 Diagnostics.Error("the pack's card fields could not be read by name in this build; the " +
@@ -125,6 +133,9 @@ namespace InFalsusChartLoader
             RowCalls++;
             long t0 = Now;
 #endif
+            Diagnostics.Info($"probe: pack row index={index} " +
+                             $"count={(Memory.LooksLikeObject(table) ? Memory.I32(table + Offsets.Runtime.ArrayLength) : -1)} " +
+                             $"table=0x{table.ToInt64():X}");
             if (SongCatalog.CustomPackId >= 0 && index == (uint)SongCatalog.CustomPackId)
             {
                 if (_rowSource < 0) _rowSource = ResolveSourceRow();
@@ -247,13 +258,56 @@ namespace InFalsusChartLoader
         /// <summary>`RowSize`'s answer, -1 until it has been asked.</summary>
         private static int _rowSize = -1;
 
-        /// <summary>The first drawable shipped row after the head.</summary>
+        /// <summary>The first shipped row after the head with a pack cover.</summary>
         internal static int SourceRow(IntPtr table, int count, int stride)
         {
             if (stride <= 0 || count <= 0) return -1;
 
             for (int i = 1; i < count; i++)
-                if (i != SongCatalog.CustomPackId && Drawable(table, count, stride, i)) return i;
+                if (SongCatalog.IsOfficialPack((ushort)i) && CoverDrawable(table, count, stride, i)) return i;
+
+            return -1;
+        }
+
+        /// <summary>The first shipped pack row with its own large card and a backing picture.</summary>
+        internal static int PackVisualRow(IntPtr table, int count, int stride)
+        {
+            if (!ResolveFields()) return -1;
+            if (stride <= 0 || count <= 0) return -1;
+
+            IntPtr head = Row(table, count, stride, 0);
+            IntPtr shared = head == IntPtr.Zero ? IntPtr.Zero : Memory.Ptr(head + RowLargeCard);
+
+            for (int i = 1; i < count; i++)
+            {
+                if (!SongCatalog.IsOfficialPack((ushort)i)) continue;
+
+                IntPtr row = Row(table, count, stride, i);
+                if (row == IntPtr.Zero) continue;
+
+                IntPtr large = Memory.Ptr(row + RowLargeCard);
+                IntPtr backing = Memory.Ptr(row + RowBacking);
+                if (!Memory.LooksLikeObject(large) || !Memory.LooksLikeObject(backing)) continue;
+                if (large == shared) continue;
+
+                return i;
+            }
+
+            return -1;
+        }
+
+        /// <summary>The first shipped row after the head with a backing picture.</summary>
+        internal static int BackingRow(IntPtr table, int count, int stride)
+        {
+            if (stride <= 0 || count <= 0) return -1;
+
+            for (int i = 1; i < count; i++)
+            {
+                if (!SongCatalog.IsOfficialPack((ushort)i)) continue;
+
+                IntPtr row = Row(table, count, stride, i);
+                if (row != IntPtr.Zero && Memory.LooksLikeObject(Memory.Ptr(row + RowBacking))) return i;
+            }
 
             return -1;
         }
@@ -273,16 +327,16 @@ namespace InFalsusChartLoader
             }
         }
 
-        /// <summary>Whether a row has a material the pack screen draws.</summary>
-        private static bool Drawable(IntPtr table, int count, int stride, int id)
+        /// <summary>Whether a row has the materials a pack cover draws.</summary>
+        private static bool CoverDrawable(IntPtr table, int count, int stride, int id)
         {
             if (!ResolveFields()) return false;
 
             IntPtr row = Row(table, count, stride, id);
             if (row == IntPtr.Zero) return false;
 
-            return Memory.LooksLikeObject(Memory.Ptr(row + RowLargeCard))
-                || Memory.LooksLikeObject(Memory.Ptr(row + RowSmallCard));
+            return Memory.LooksLikeObject(Memory.Ptr(row + RowLargeCard)) ||
+                   Memory.LooksLikeObject(Memory.Ptr(row + RowSmallCard));
         }
 
         /// <summary>The row an id selects — `packToAssets[id]`, and row zero for an id past the end.</summary>
@@ -456,5 +510,181 @@ namespace InFalsusChartLoader
         }
 
         private static bool _rebuildReported;
+
+        private static int _selectedField = Offsets.Unresolved;
+        private static int _backingField = Offsets.Unresolved;
+        private static int _calculatedField = Offsets.Unresolved;
+        private static int _materialField = Offsets.Unresolved;
+        private static bool _maskFieldsAsked;
+
+        private static int _outlineListField = Offsets.Unresolved;
+        private static int _outlineVisualField = Offsets.Unresolved;
+        private static int _topScrollField = Offsets.Unresolved;
+        private static int _bottomScrollField = Offsets.Unresolved;
+        private static int _cardListField = Offsets.Unresolved;
+        private static int _cardVisualField = Offsets.Unresolved;
+        private static bool _listFieldsAsked;
+        private static bool _listFieldsReady;
+
+        private static int _buttonField = Offsets.Unresolved;
+        private static readonly int[] ButtonFields = new int[7];
+        private static bool _buttonFieldsAsked;
+        private static bool _buttonFieldsReady;
+
+        private static bool _maskFailureReported;
+
+        /// <summary>The pack visual and the pack scene the screen is using.</summary>
+        internal static IntPtr PackVisual, PackScene;
+
+        /// <summary>Turns on the alpha mask of the pack screen's live materials.</summary>
+        internal static void ApplyPackMask(IntPtr self)
+        {
+            if (!EnsureMaskFields()) return;
+
+            ApplyMaskTo(self, _selectedField);
+            ApplyMaskTo(self, _backingField);
+        }
+
+        private static bool EnsureMaskFields()
+        {
+            if (!_maskFieldsAsked)
+            {
+                _maskFieldsAsked = true;
+                _selectedField = FieldResolver.Field("PackVisualMemberLarge", "selectedVisual");
+                _backingField = FieldResolver.Field("PackVisualMemberLarge", "backingVisual");
+                _calculatedField = FieldResolver.Field("Constrained2D", "Calculated");
+                _materialField = FieldResolver.Field("_ti", "_OHb");
+            }
+
+            return _selectedField >= 0 && _backingField >= 0 &&
+                   _calculatedField >= 0 && _materialField >= 0;
+        }
+
+        private static bool EnsureListFields()
+        {
+            if (!_listFieldsAsked)
+            {
+                _listFieldsAsked = true;
+                _outlineListField = FieldResolver.Field("PackSelectScene", "_ff");
+                _outlineVisualField = FieldResolver.Field("PackOutlineMember", "outlineVisual");
+                _topScrollField = FieldResolver.Field("PackSelectScene", "topScrollContainer");
+                _bottomScrollField = FieldResolver.Field("PackSelectScene", "bottomScrollContainer");
+                _cardListField = FieldResolver.Field("PackSelectScrollContainer", "_jr");
+                _cardVisualField = FieldResolver.Field("PackVisualMemberSmall", "nonSelectedVisual");
+                _listFieldsReady = _outlineListField >= 0 && _outlineVisualField >= 0 &&
+                                   _topScrollField >= 0 && _bottomScrollField >= 0 &&
+                                   _cardListField >= 0 && _cardVisualField >= 0;
+            }
+
+            return _listFieldsReady;
+        }
+
+        private static bool EnsureButtonFields()
+        {
+            if (!_buttonFieldsAsked)
+            {
+                _buttonFieldsAsked = true;
+                _buttonField = FieldResolver.Field("SongSelectScene", "packSelectButtonContainer");
+                string[] names =
+                {
+                    "clearTypeBacking",
+                    "currentNonHoverButton",
+                    "currentHoverButton",
+                    "targetNonHoverButton",
+                    "targetHoverButton",
+                    "currentContainer",
+                    "targetContainer",
+                };
+
+                bool ready = _buttonField >= 0;
+                for (int i = 0; i < names.Length; i++)
+                {
+                    ButtonFields[i] = FieldResolver.Field("PackSelectButtonContainer", names[i]);
+                    ready &= ButtonFields[i] >= 0;
+                }
+
+                _buttonFieldsReady = ready;
+            }
+
+            return _buttonFieldsReady;
+        }
+
+        /// <summary>Keeps the live pack material's alpha mask on after the game's material pass.</summary>
+        internal static void TickPackMask()
+        {
+            if (PackVisual != IntPtr.Zero)
+                try { ApplyPackMask(PackVisual); }
+                catch (Exception e) { MaskFailed("keeping the pack's alpha mask on raised: " + Diagnostics.Describe(e)); }
+
+            if (PackScene != IntPtr.Zero)
+                try { ApplyPackMasks(PackScene); }
+                catch (Exception e) { MaskFailed("keeping the pack list's alpha mask on raised: " + Diagnostics.Describe(e)); }
+
+            IntPtr scene = SongSelectRefresh.Scene();
+            if (scene != IntPtr.Zero)
+                try { ApplyPackButtonMask(scene); }
+                catch (Exception e) { MaskFailed("keeping the pack button's alpha mask on raised: " + Diagnostics.Describe(e)); }
+        }
+
+        private static void MaskFailed(string why)
+        {
+            if (_maskFailureReported) return;
+            _maskFailureReported = true;
+            Diagnostics.Error(why);
+        }
+
+        private static void ApplyMaskTo(IntPtr self, int field)
+        {
+            IntPtr constrained = Memory.Ptr(self + field);
+            if (!Memory.LooksLikeObject(constrained)) return;
+
+            IntPtr calculated = constrained + _calculatedField;
+            IntPtr material = Memory.Ptr(calculated + _materialField);
+            if (!Memory.LooksLikeObject(material)) return;
+            if (!JacketFactory.LooksLikeMaterial(material)) return;
+
+            if (!JacketFactory.EnableAlphaMask(material))
+                MaskFailed($"the pack material at 0x{material.ToInt64():X} could not have its alpha mask turned on");
+        }
+
+        /// <summary>Turns on the alpha mask for every pack list element the row feeds.</summary>
+        internal static void ApplyPackMasks(IntPtr layer)
+        {
+            if (!Memory.LooksLikeObject(layer)) return;
+            if (!EnsureMaskFields() || !EnsureListFields()) return;
+
+            IntPtr outlines = Memory.Ptr(layer + _outlineListField);
+            if (Memory.TryList(outlines, out IntPtr outlineItems, out int outlineCount))
+                for (int i = 0; i < outlineCount; i++)
+                    ApplyMaskTo(Memory.Ptr(outlineItems + i * IntPtr.Size), _outlineVisualField);
+
+            ApplyCardMasks(layer, _topScrollField);
+            ApplyCardMasks(layer, _bottomScrollField);
+        }
+
+        private static void ApplyCardMasks(IntPtr layer, int containerField)
+        {
+            IntPtr container = Memory.Ptr(layer + containerField);
+            if (!Memory.LooksLikeObject(container)) return;
+
+            IntPtr list = Memory.Ptr(container + _cardListField);
+            if (!Memory.TryList(list, out IntPtr items, out int count)) return;
+
+            for (int i = 0; i < count; i++)
+                ApplyMaskTo(Memory.Ptr(items + i * IntPtr.Size), _cardVisualField);
+        }
+
+        /// <summary>Turns on the alpha mask for the pack button's row-fed visuals.</summary>
+        internal static void ApplyPackButtonMask(IntPtr scene)
+        {
+            if (!Memory.LooksLikeObject(scene)) return;
+            if (!EnsureMaskFields() || !EnsureButtonFields()) return;
+
+            IntPtr button = Memory.Ptr(scene + _buttonField);
+            if (!Memory.LooksLikeObject(button)) return;
+
+            foreach (int field in ButtonFields)
+                ApplyMaskTo(button, field);
+        }
     }
 }

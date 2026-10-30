@@ -53,6 +53,9 @@ namespace InFalsusChartLoader
         /// <summary>The folder's own name, for log messages.</summary>
         internal string FolderName;
 
+        /// <summary>The pack this song belongs to, or null for the IFCL pack.</summary>
+        internal PackManifest Pack;
+
         /// <summary>The name the game requests this song's charts under.</summary>
         internal string BaseName;
     }

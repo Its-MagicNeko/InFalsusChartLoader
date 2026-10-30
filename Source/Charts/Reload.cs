@@ -80,31 +80,56 @@ namespace InFalsusChartLoader
             foreach (string folder in folders)
             {
                 map[folder] = (-1, 0);
+                AddFiles(map, folder);
 
-                string[] files;
+                string[] songs;
                 try
                 {
-                    files = Directory.GetFiles(folder);
+                    songs = Directory.GetDirectories(folder);
                 }
                 catch (Exception)
                 {
                     continue;
                 }
 
-                foreach (string file in files)
+                // A pack root that is currently empty still has to notice a song folder appearing.
+                map[folder + "/*"] = (songs.Length, 0);
+                if (songs.Length == 0 || !ChartInfoReader.IsPackFolder(folder)) continue;
+
+                foreach (string song in songs)
                 {
-                    try
-                    {
-                        var info = new FileInfo(file);
-                        map[file] = (info.LastWriteTimeUtc.Ticks, info.Length);
-                    }
-                    catch (Exception)
-                    {
-                    }
+                    map[song] = (-1, 0);
+                    AddFiles(map, song);
                 }
             }
 
             return map;
+        }
+
+        /// <summary>Adds one folder's files to the watched stamps.</summary>
+        private static void AddFiles(Dictionary<string, (long Ticks, long Length)> map, string folder)
+        {
+            string[] files;
+            try
+            {
+                files = Directory.GetFiles(folder);
+            }
+            catch (Exception)
+            {
+                return;
+            }
+
+            foreach (string file in files)
+            {
+                try
+                {
+                    var info = new FileInfo(file);
+                    map[file] = (info.LastWriteTimeUtc.Ticks, info.Length);
+                }
+                catch (Exception)
+                {
+                }
+            }
         }
 
         private static bool Same(Dictionary<string, (long Ticks, long Length)> left,
@@ -137,16 +162,17 @@ namespace InFalsusChartLoader
                 List<IntPtr> retired = ForgetChangedPictures(stamps);
 
                 var skipped = new List<string>();
-                List<ChartInfo> imported = ChartLibrary.Import(_root, ModCore.Validate, skipped);
+                ChartLibrary.ImportResult imported = ChartLibrary.Import(_root, ModCore.Validate, skipped);
+                List<ChartInfo> songs = imported.Songs;
                 foreach (string folder in skipped)
                     Diagnostics.Error($"'{folder}' was not loaded");
 
                 var seen = new HashSet<string>(StringComparer.Ordinal);
                 HashSet<string> shippedNames = SongCatalog.ShippedNames();
-                var final = new List<ChartInfo>(imported.Count);
+                var final = new List<ChartInfo>(songs.Count);
                 var audio = new Dictionary<string, AudioCodec.Prepared>(StringComparer.Ordinal);
 
-                foreach (ChartInfo info in imported)
+                foreach (ChartInfo info in songs)
                 {
                     if (shippedNames.Contains(info.BaseName) || !seen.Add(info.BaseName))
                     {
@@ -204,7 +230,7 @@ namespace InFalsusChartLoader
                     if (!newNames.Contains(slot.Value.BaseName)) removed++;
 
                 SongSelectRefresh.CaptureSelection(out _, out string selectedName);
-                int rebuilt = SongCatalog.ReplaceCustoms(songData, packData, final);
+                int rebuilt = SongCatalog.ReplaceCustoms(songData, packData, final, imported.Packs);
                 if (final.Count > 0 && rebuilt != final.Count)
                 {
                     Diagnostics.Error("the custom songs could not be added to the game's song list");
@@ -212,17 +238,6 @@ namespace InFalsusChartLoader
                 }
 
                 SongSelectRefresh.RestoreSelection(selectedName);
-
-                if (SongCatalog.CustomPackId >= 0)
-                {
-                    if (PackSetup.TryGetVisuals(out IntPtr packAssets))
-                        PackSetup.ExtendVisuals(packAssets, SongCatalog.CustomPackId);
-                    else
-                        Diagnostics.Warn("the pack visual table could not be reached");
-
-                    PackSetup.RefreshLookup(packData);
-                    PackSetup.SetPackName(SongCatalog.CustomPackId, SongCatalog.PackName);
-                }
 
                 var keep = new HashSet<string>(StringComparer.Ordinal);
                 foreach (ChartInfo info in final) keep.Add(info.BaseName);
@@ -251,7 +266,7 @@ namespace InFalsusChartLoader
                 }
                 if (released > 0) Diagnostics.Info($"probe: pictures released={released}");
 
-                ModCore.Adopt(final);
+                ModCore.Adopt(final, imported.Packs);
                 ModCore.MarkRegistered();
 
                 Diagnostics.Load($"charts reloaded: +{added} ~{updated} -{removed}");
@@ -279,6 +294,8 @@ namespace InFalsusChartLoader
                 string extension = Path.GetExtension(pair.Key).ToLowerInvariant();
                 if (extension == ".png")
                 {
+                    PackVisuals.Forget(pair.Key);
+
                     IntPtr jacket = JacketFactory.Forget(pair.Key, "jacket");
                     if (jacket != IntPtr.Zero) retired.Add(jacket);
 
