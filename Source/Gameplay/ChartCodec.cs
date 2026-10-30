@@ -70,6 +70,14 @@ namespace InFalsusChartLoader
                 return false;
             }
 
+#if IF_SPC_API
+            if (!StartsWithIcp1(bytes))
+            {
+                if_spc_api.Conversion conversion = if_spc_api.Converter.Convert(bytes, seed);
+                if (conversion.Ok) bytes = conversion.Output;
+            }
+#endif
+
             IntPtr name = Il2CppInterop.Runtime.IL2CPP.ManagedStringToIl2Cpp(seed);
             if (name == IntPtr.Zero)
             {
@@ -179,6 +187,14 @@ namespace InFalsusChartLoader
 
         /// <summary>The four note types the shipped charts contain: tap, hold, flick, sky area.</summary>
         private static bool IsNoteType(int type) => type == 1 || type == 2 || type == 4 || type == 5;
+
+#if IF_SPC_API
+        /// <summary>Whether the file starts with the game's release-chart marker.</summary>
+        private static bool StartsWithIcp1(byte[] bytes) =>
+            bytes != null && bytes.Length >= 4 &&
+            bytes[0] == (byte)'I' && bytes[1] == (byte)'C' &&
+            bytes[2] == (byte)'P' && bytes[3] == (byte)'1';
+#endif
 
         /// <summary>Measures the note stride from the live array.</summary>
         private static bool MeasureNoteSize(IntPtr items, int count)

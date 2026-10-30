@@ -1,0 +1,15 @@
+<Project>
+  <Target Name="Repack" AfterTargets="Build" Condition="'$(IfSpcApiAvailable)' == 'true'">
+    <PropertyGroup>
+      <WorkingDirectory>$(TargetDir)</WorkingDirectory>
+    </PropertyGroup>
+    <ItemGroup>
+      <InputAssemblies Include="$(TargetPath)" />
+      <InputAssemblies Include="$(IfSpcApiDll)" />
+      <IlRepackLibs Include="$(TargetDir)" />
+      <IlRepackLibs Include="$(LoaderDir)" />
+    </ItemGroup>
+    <ILRepack LibraryPath="@(IlRepackLibs)" OutputFile="$(TargetPath)"
+              InputAssemblies="@(InputAssemblies)" Internalize="true" Parallel="true" />
+  </Target>
+</Project>

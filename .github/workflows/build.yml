@@ -29,6 +29,19 @@ jobs:
         with:
           dotnet-version: '6.0.x'
 
+      - name: 下载 if-spc-api C# 库
+        uses: actions/download-artifact@v4
+        with:
+          name: if-spc-api-cs
+          repository: Its-MagicNeko/if-spc-api
+          run-id: 41079716931
+          path: Managed
+          github-token: ${{ secrets.IF_SPC_API }}
+
+      - name: 检查 if-spc-api C# 库
+        shell: cmd
+        run: if not exist "Managed\if_spc_api_cs.dll" exit /b 1
+
       - name: 构建 MelonLoader Release
         shell: cmd
         run: call build.bat --MelonLoader Release

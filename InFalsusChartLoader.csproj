@@ -13,6 +13,13 @@
     <AssemblyVersion>0.3.0</AssemblyVersion>
   </PropertyGroup>
 
+  <!-- The optional if-spc-api C# library. -->
+  <PropertyGroup>
+    <IfSpcApiDll Condition="'$(IfSpcApiDll)' == ''">$(MSBuildThisFileDirectory)Managed\if_spc_api_cs.dll</IfSpcApiDll>
+    <IfSpcApiAvailable Condition="Exists('$(IfSpcApiDll)')">true</IfSpcApiAvailable>
+    <DefineConstants Condition="'$(IfSpcApiAvailable)' == 'true'">$(DefineConstants);IF_SPC_API</DefineConstants>
+  </PropertyGroup>
+
   <!-- Which loader this build targets, and the define it compiles with. -->
   <PropertyGroup>
     <Loader Condition="'$(Loader)' == '' And '$(Configuration)' == 'BepInExRelease'">BepInEx</Loader>
@@ -70,6 +77,10 @@
 
   <!-- Compile-time references; the loader supplies them at runtime. -->
   <ItemGroup>
+    <Reference Include="if_spc_api_cs" Condition="'$(IfSpcApiAvailable)' == 'true'">
+      <HintPath>$(IfSpcApiDll)</HintPath>
+      <Private>false</Private>
+    </Reference>
     <Reference Include="MelonLoader" Condition="'$(Loader)' == 'MelonLoader'">
       <HintPath>$(LoaderDir)\MelonLoader.dll</HintPath>
       <Private>false</Private>
@@ -110,5 +121,12 @@
       <HintPath>$(LoaderDir)\SemanticVersioning.dll</HintPath>
       <Private>false</Private>
     </Reference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="ILRepack.Lib.MSBuild.Task" Version="2.0.43">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
   </ItemGroup>
 </Project>
