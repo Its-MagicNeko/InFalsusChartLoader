@@ -8,8 +8,11 @@ namespace InFalsusChartLoader
         /// <summary>The pack's identity, from the root <c>if</c>.</summary>
         internal string Id;
 
-        /// <summary>The name every language slot shows.</summary>
+        /// <summary>The name shown in the pack list.</summary>
         internal string Name;
+
+        /// <summary>The five language slots of the name: Simplified, Traditional, English, Japanese, Korean.</summary>
+        internal string[] Names;
 
         /// <summary>The five pictures: large card, background, outline, small card, song-select button.</summary>
         internal string[] JacketPaths = new string[5];

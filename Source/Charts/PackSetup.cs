@@ -139,7 +139,7 @@ namespace InFalsusChartLoader
 
                 live.Add(pack.PackId);
                 if (!ExtendVisuals(packAssets, pack.PackId)) return false;
-                if (!SetPackName(pack.PackId, pack.Name))
+                if (!SetPackName(pack.PackId, pack.Names))
                 {
                     Diagnostics.Error("the custom pack's name could not be written; the custom packs were " +
                                       "not applied");
@@ -383,23 +383,31 @@ namespace InFalsusChartLoader
         /// </summary>
         private static int _mappingOffset = int.MinValue;
 
-        /// <summary>Gives the pack a name.</summary>
+        /// <summary>Which text write this is.</summary>
         private enum TextWhat { PackName, SongText }
 
-        internal static bool SetPackName(int packId, string name)
+        /// <summary>Gives the pack a name in all five language slots.</summary>
+        internal static bool SetPackName(int packId, string name) => SetPackName(packId, SameName(name));
+
+        /// <summary>Gives the pack a name in all five language slots.</summary>
+        internal static bool SetPackName(int packId, string[] names)
         {
             // The field is read here, after `ResolveFields` — not at the call site, for the reason
             // `SongText` gives.
             if (!ResolveFields()) return false;
 
-            return SetText(PackIdTypeMapping, packId, name, TextWhat.PackName);
+            return SetText(PackIdTypeMapping, packId, names, TextWhat.PackName);
         }
 
         /// <summary>Which text write this is.</summary>
         internal enum SongText { Title, Artist, Illustrator }
 
         /// <summary>Gives a song a title, artist, or illustrator.</summary>
-        internal static bool SetSongText(SongText which, int songId, string text)
+        internal static bool SetSongText(SongText which, int songId, string text) =>
+            SetSongText(which, songId, SameName(text));
+
+        /// <summary>Gives a song a title in all five language slots.</summary>
+        internal static bool SetSongText(SongText which, int songId, string[] names)
         {
             if (!ResolveFields()) return false;
 
@@ -407,13 +415,22 @@ namespace InFalsusChartLoader
                              : which == SongText.Artist ? SongArtistTypeMapping
                              : SongIllustratorTypeMapping;
 
-            return SetText(mappingField, songId, text, TextWhat.SongText);
+            return SetText(mappingField, songId, names, TextWhat.SongText);
         }
 
+        /// <summary>The same string in all five language slots.</summary>
+        private static string[] SameName(string text) => new[] { text, text, text, text, text };
+
         /// <summary>The one text write.</summary>
-        private static bool SetText(int mappingField, int id, string text, TextWhat what)
+        private static bool SetText(int mappingField, int id, string[] names, TextWhat what)
         {
             if (!ResolveFields()) return false;
+
+            if (names == null || names.Length != 5)
+            {
+                NotWritten(what, "the name does not have five language slots");
+                return false;
+            }
 
             IntPtr klass = FieldResolver.ClassPointer("DataAccess");
             if (klass == IntPtr.Zero) return false;
@@ -445,9 +462,10 @@ namespace InFalsusChartLoader
                 return false;
             }
 
-            if (!Insert(table, id, text)) return false;
+            if (!Insert(table, id, names)) return false;
 
-            Diagnostics.Info($"localisation +0x{mappingField:X}: entry {id} set to '{text}'");
+            Diagnostics.Info($"localisation +0x{mappingField:X}: entry {id} set to " +
+                             $"'{string.Join("/", names)}'");
             return true;
         }
 
@@ -506,19 +524,24 @@ namespace InFalsusChartLoader
         }
 
         /// <summary>Writes one entry in the text table.</summary>
-        private static unsafe bool Insert(IntPtr table, int packId, string name)
+        private static unsafe bool Insert(IntPtr table, int packId, string[] names)
         {
             ushort id = (ushort)packId;
 
             byte[] raw = new byte[TextMappingValuesSize];
             fixed (byte* values = raw)
             {
-                IntPtr text = Il2CppInterop.Runtime.IL2CPP.ManagedStringToIl2Cpp(name);
-                *(IntPtr*)(values + ValueEnglish) = text;
-                *(IntPtr*)(values + ValueJapanese) = text;
-                *(IntPtr*)(values + ValueKorean) = text;
-                *(IntPtr*)(values + ValueTraditionalChinese) = text;
-                *(IntPtr*)(values + ValueSimplifiedChinese) = text;
+                IntPtr simplified = Il2CppInterop.Runtime.IL2CPP.ManagedStringToIl2Cpp(names[0]);
+                IntPtr traditional = Il2CppInterop.Runtime.IL2CPP.ManagedStringToIl2Cpp(names[1]);
+                IntPtr english = Il2CppInterop.Runtime.IL2CPP.ManagedStringToIl2Cpp(names[2]);
+                IntPtr japanese = Il2CppInterop.Runtime.IL2CPP.ManagedStringToIl2Cpp(names[3]);
+                IntPtr korean = Il2CppInterop.Runtime.IL2CPP.ManagedStringToIl2Cpp(names[4]);
+
+                *(IntPtr*)(values + ValueEnglish) = english;
+                *(IntPtr*)(values + ValueJapanese) = japanese;
+                *(IntPtr*)(values + ValueKorean) = korean;
+                *(IntPtr*)(values + ValueTraditionalChinese) = traditional;
+                *(IntPtr*)(values + ValueSimplifiedChinese) = simplified;
 
                 IntPtr* args = stackalloc IntPtr[2];
                 args[0] = (IntPtr)(&id);

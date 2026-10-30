@@ -15,6 +15,9 @@ namespace InFalsusChartLoader
         /// <summary>Display name of the song.</summary>
         internal string Name;
 
+        /// <summary>The five language slots of the name: Simplified, Traditional, English, Japanese, Korean.</summary>
+        internal string[] Names;
+
         /// <summary>Composer, shown as the song's artist.</summary>
         internal string Composer;
 

@@ -348,7 +348,7 @@ namespace InFalsusChartLoader
                 Buffer.MemoryCopy((void*)(oldSongs + Offsets.Runtime.ArrayDataOffset), (void*)slot,
                                   stride, stride);
 
-                Memory.WritePtr(slot + SongInfoTitleReading, BuildReadings(titleTemplate, charts[i].Name));
+                Memory.WritePtr(slot + SongInfoTitleReading, BuildReadings(titleTemplate, charts[i].Names));
                 Memory.WritePtr(slot + SongInfoArtistReading, Str(charts[i].Composer));
 
                 Memory.WriteU16(slot + SongInfoId, (ushort)id);
@@ -390,7 +390,7 @@ namespace InFalsusChartLoader
             for (int i = 0; i < charts.Count; i++)
             {
                 int id = shipped + i;
-                PackSetup.SetSongText(PackSetup.SongText.Title, id, charts[i].Name);
+                PackSetup.SetSongText(PackSetup.SongText.Title, id, charts[i].Names);
                 PackSetup.SetSongText(PackSetup.SongText.Artist, id, charts[i].Composer);
                 PackSetup.SetSongText(PackSetup.SongText.Illustrator, id, IllustratorOf(charts[i], 0));
             }
@@ -805,27 +805,48 @@ namespace InFalsusChartLoader
             Diagnostics.Info("song list rebuilt");
         }
 
-        /// <summary>A title-reading array with the same text in every locale.</summary>
-        private static IntPtr BuildReadings(IntPtr template, string text)
+        /// <summary>A title-reading array with one text per game locale.</summary>
+        private static IntPtr BuildReadings(IntPtr template, string[] names)
         {
             if (!Memory.LooksLikeObject(template)) return IntPtr.Zero;
+            if (names == null || names.Length != 5)
+            {
+                Diagnostics.Error("the song name does not have five language slots");
+                return IntPtr.Zero;
+            }
 
             int locales = Memory.I32(template + Offsets.Runtime.ArrayLength);
             if (locales <= 0 || locales > LocaleLimit)
             {
                 Diagnostics.Warn($"the shipped title readings hold no locale count ({locales}); " +
-                                 $"'{text}' keeps its name from the localisation table");
+                                 $"'{names[0]}' keeps its name from the localisation table");
                 return IntPtr.Zero;
             }
 
             IntPtr array = NewArray(template, locales);
             if (array == IntPtr.Zero) return IntPtr.Zero;
 
-            IntPtr value = Str(text);
             for (int i = 0; i < locales; i++)
+            {
+                IntPtr value = Str(ReadingFor(names, i));
                 Memory.WritePtr(array + Offsets.Runtime.ArrayDataOffset + i * IntPtr.Size, value);
+            }
 
             return Root(array);
+        }
+
+        /// <summary>The name for one `Strings.Localization` index.</summary>
+        private static string ReadingFor(string[] names, int locale)
+        {
+            switch (locale)
+            {
+                case 1: return names[2];   // English
+                case 2: return names[3];   // Japanese
+                case 3: return names[4];   // Korean
+                case 4: return names[1];   // Traditional Chinese
+                case 5: return names[0];   // Simplified Chinese
+                default: return names[2];  // Unset, and anything past the enum
+            }
         }
 
         /// <summary>The per-difficulty records for one song.</summary>
@@ -878,7 +899,7 @@ namespace InFalsusChartLoader
             var packs = new List<PackManifest>(LivePacks.Values);
             packs.Sort((left, right) => left.PackId.CompareTo(right.PackId));
             foreach (PackManifest pack in packs)
-                parts.Add($"p{pack.PackId}:{pack.Id}:{pack.Name}:{string.Join(",", pack.JacketPaths)}");
+                parts.Add($"p{pack.PackId}:{pack.Id}:{string.Join(",", pack.Names)}:{string.Join(",", pack.JacketPaths)}");
 
             parts.Add($"v{PackVisuals.Revision}");
             return string.Join("|", parts);

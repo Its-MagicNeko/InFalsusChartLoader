@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Text.Json;
@@ -97,7 +98,8 @@ namespace InFalsusChartLoader
             if (!Text(root, "id", out string id, out reason)) return false;
             built.BaseName = id;
 
-            if (!Text(root, "name", out built.Name, out reason)) return false;
+            if (!LocalizedName(root, out built.Names, out reason)) return false;
+            built.Name = built.Names[0];
             if (!Text(root, "composer", out built.Composer, out reason)) return false;
 
             if (!Illustrators(root, out built.Illustrators, out reason)) return false;
@@ -203,7 +205,8 @@ namespace InFalsusChartLoader
             };
 
             if (!Text(root, "id", out built.Id, out reason)) return false;
-            if (!Text(root, "name", out built.Name, out reason)) return false;
+            if (!LocalizedName(root, out built.Names, out reason)) return false;
+            built.Name = built.Names[0];
             if (!PackJackets(root, folder, out built.JacketPaths, out reason)) return false;
 
             pack = built;
@@ -274,6 +277,85 @@ namespace InFalsusChartLoader
             }
 
             return true;
+        }
+
+        /// <summary>The name: one string or five language strings.</summary>
+        private static bool LocalizedName(JsonElement root, out string[] names, out string reason)
+        {
+            names = null;
+            reason = null;
+
+            if (!root.TryGetProperty("name", out JsonElement token) ||
+                token.ValueKind == JsonValueKind.Null)
+            {
+#if DEBUG
+                reason = "\"name\" is missing";
+#endif
+                return false;
+            }
+
+            if (token.ValueKind == JsonValueKind.String)
+            {
+                string single = token.GetString();
+                if (string.IsNullOrWhiteSpace(single))
+                {
+#if DEBUG
+                    reason = "\"name\" is empty";
+#endif
+                    return false;
+                }
+
+                names = SameName(single);
+                return true;
+            }
+
+            if (token.ValueKind != JsonValueKind.Array)
+            {
+#if DEBUG
+                reason = "\"name\" is not a string or an array";
+#endif
+                return false;
+            }
+
+            var values = new List<string>(5);
+            foreach (JsonElement entry in token.EnumerateArray())
+            {
+                if (entry.ValueKind != JsonValueKind.String ||
+                    string.IsNullOrWhiteSpace(entry.GetString()))
+                {
+#if DEBUG
+                    reason = $"\"name\"[{values.Count}] is not a non-empty string";
+#endif
+                    return false;
+                }
+
+                values.Add(entry.GetString());
+            }
+
+            if (values.Count == 1)
+            {
+                names = SameName(values[0]);
+                return true;
+            }
+
+            if (values.Count == 5)
+            {
+                names = values.ToArray();
+                return true;
+            }
+
+#if DEBUG
+            reason = $"\"name\" has {values.Count} entries, not 1 or 5";
+#endif
+            return false;
+        }
+
+        /// <summary>The same name in all five language slots.</summary>
+        private static string[] SameName(string name)
+        {
+            var names = new string[5];
+            for (int i = 0; i < names.Length; i++) names[i] = name;
+            return names;
         }
 
         /// <summary>A required, non-empty string field.</summary>
