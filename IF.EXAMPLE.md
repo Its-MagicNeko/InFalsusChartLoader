@@ -76,7 +76,7 @@ Charts
   "background": "bg.mp4",                     //谱面内的背景，接受png与mp4；为可选参数
   "preview_seconds": ["0", "60"],             //预览音频时间[开始,结束]，以秒计算
   "charter": "Xing_W",                        //谱师
-  "chart": "chart.spc",                       //谱面文件，不兼容demo格式
+  "chart": "chart.spc",                       //谱面文件
   "lv": 15                                    //谱面难度
 }
 ```
@@ -107,7 +107,7 @@ Charts
   //谱师[Minimal,Evolved,Ultimate,Forbidden]
   //对应难度的谱面为null的情况下可用null占位
   "chart": [null, null, null, "chart.spc"],
-  //谱面文件，不兼容demo格式[Minimal,Evolved,Ultimate,Forbidden]
+  //谱面文件[Minimal,Evolved,Ultimate,Forbidden]
   //可用null占位
   "lv": [1, null, 1, 15]
   //谱面难度[Minimal,Evolved,Ultimate,Forbidden]
