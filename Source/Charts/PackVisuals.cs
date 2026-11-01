@@ -50,18 +50,10 @@ namespace InFalsusChartLoader
         {
             internal string[] Paths;
             internal readonly List<IntPtr> Materials = new List<IntPtr>();
-        }
-
-        /// <summary>One picture texture and how many live packs show it.</summary>
-        private sealed class TextureRef
-        {
-            internal IntPtr Texture;
-            internal int Count;
+            internal readonly List<IntPtr> Textures = new List<IntPtr>();
         }
 
         private static readonly Dictionary<int, Entry> ByPack = new Dictionary<int, Entry>();
-        private static readonly Dictionary<string, TextureRef> Textures =
-            new Dictionary<string, TextureRef>(StringComparer.OrdinalIgnoreCase);
         private static readonly List<IntPtr> RetiredMaterials = new List<IntPtr>();
         private static readonly List<IntPtr> RetiredTextures = new List<IntPtr>();
 
@@ -136,24 +128,9 @@ namespace InFalsusChartLoader
             Retire(packId);
             if (hadEntry) Revision++;
 
-            var textures = new Dictionary<string, IntPtr>(StringComparer.OrdinalIgnoreCase);
-            foreach (string path in resolved)
-            {
-                if (textures.ContainsKey(path)) continue;
-
-                IntPtr texture = AcquireTexture(path, out reason);
-                if (texture == IntPtr.Zero)
-                {
-                    ReleasePaths(textures.Keys);
-                    return false;
-                }
-                textures[path] = texture;
-            }
-
             var entry = new Entry { Paths = resolved };
             for (int group = 0; group < SlotGroups.Length; group++)
             {
-                IntPtr texture = textures[resolved[group]];
                 int[] offsets = _slotOffsets[group];
 
                 for (int i = 0; i < offsets.Length; i++)
@@ -166,6 +143,14 @@ namespace InFalsusChartLoader
                         RetireEntry(entry);
                         return false;
                     }
+
+                    IntPtr texture = JacketFactory.BuildMaskedTexture(resolved[group], origin, out reason);
+                    if (texture == IntPtr.Zero)
+                    {
+                        RetireEntry(entry);
+                        return false;
+                    }
+                    entry.Textures.Add(texture);
 
                     if (CloneInto(origin, destination, offset, texture, entry, out reason))
                         continue;
@@ -214,7 +199,6 @@ namespace InFalsusChartLoader
             ByPack.Clear();
 
             ReleaseRetired();
-            Textures.Clear();
         }
 
         /// <summary>Destroys the materials and textures the live packs no longer show.</summary>
@@ -244,7 +228,8 @@ namespace InFalsusChartLoader
             RetiredMaterials.AddRange(entry.Materials);
             entry.Materials.Clear();
 
-            ReleasePaths(entry.Paths);
+            RetiredTextures.AddRange(entry.Textures);
+            entry.Textures.Clear();
         }
 
         /// <summary>Clones one source slot and puts one of the pack's pictures on the clone.</summary>
@@ -257,12 +242,6 @@ namespace InFalsusChartLoader
             if (clone == IntPtr.Zero) return false;
 
             if (!JacketFactory.SetMainTexture(clone, texture, out reason))
-            {
-                JacketFactory.ReleaseMaterial(clone);
-                return false;
-            }
-
-            if (!JacketFactory.KeepSourceAlpha(source, clone, out reason))
             {
                 JacketFactory.ReleaseMaterial(clone);
                 return false;
@@ -299,49 +278,6 @@ namespace InFalsusChartLoader
             _slotOffsets = groups;
             _firstSlot = groups[0][0];
             return true;
-        }
-
-        /// <summary>Gets a cached texture, building it on first use.</summary>
-        private static IntPtr AcquireTexture(string path, out string reason)
-        {
-            reason = null;
-
-            if (Textures.TryGetValue(path, out TextureRef known))
-            {
-                known.Count++;
-                return known.Texture;
-            }
-
-            IntPtr texture = JacketFactory.BuildTexture(path, out reason);
-            if (texture == IntPtr.Zero) return IntPtr.Zero;
-
-            Textures[path] = new TextureRef { Texture = texture, Count = 1 };
-            return texture;
-        }
-
-        /// <summary>Drops one reference to each distinct path.</summary>
-        private static void ReleasePaths(IEnumerable<string> paths)
-        {
-            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            foreach (string path in paths)
-            {
-                if (string.IsNullOrEmpty(path)) continue;
-                if (!seen.Add(path)) continue;
-                ReleaseTextureRef(path);
-            }
-        }
-
-        /// <summary>Drops one reference to a texture; its destruction waits for shutdown.</summary>
-        private static void ReleaseTextureRef(string path)
-        {
-            if (string.IsNullOrEmpty(path)) return;
-            if (!Textures.TryGetValue(path, out TextureRef known)) return;
-
-            known.Count--;
-            if (known.Count > 0) return;
-
-            Textures.Remove(path);
-            RetiredTextures.Add(known.Texture);
         }
 
         /// <summary>Whether two resolved picture lists are the same.</summary>

@@ -90,9 +90,6 @@ namespace InFalsusChartLoader
         private static NativeHook<PackRowFn> _packRow;
         private static PackRowFn _packRowTramp;
 
-        /// <summary>The row this mod's pack is answered with; -1 until it has been resolved.</summary>
-        private static int _rowSource = -1;
-
         private static bool InstallPackRow()
         {
             int candidates = 0;
@@ -136,37 +133,30 @@ namespace InFalsusChartLoader
             Diagnostics.Info($"probe: pack row index={index} " +
                              $"count={(Memory.LooksLikeObject(table) ? Memory.I32(table + Offsets.Runtime.ArrayLength) : -1)} " +
                              $"table=0x{table.ToInt64():X}");
-            if (SongCatalog.CustomPackId >= 0 && index == (uint)SongCatalog.CustomPackId)
+            if (index <= ushort.MaxValue && SongCatalog.UsesGamePictures((ushort)index))
             {
-                if (_rowSource < 0) _rowSource = ResolveSourceRow();
-                if (_rowSource >= 0)
+                int source = SongCatalog.GamePicturePackId();
+                int count = Memory.LooksLikeObject(table)
+                    ? Memory.I32(table + Offsets.Runtime.ArrayLength)
+                    : 0;
+                if (source < 0 || source >= count)
                 {
-                    index = (uint)_rowSource;
-#if DEBUG
-                    RowRedirects++;
-#endif
+                    int size = RowSize();
+                    for (int i = 0; i < size; i++) ((byte*)destination)[i] = 0;
+                    PackSetup.NoRow();
+                    return;
                 }
+
+                index = (uint)source;
+#if DEBUG
+                RowRedirects++;
+#endif
             }
 #if DEBUG
             TicksRow += Now - t0;
 #endif
 
             _packRowTramp(table, destination, index);
-        }
-
-        /// <summary>The row this mod's pack is answered with.</summary>
-        private static int ResolveSourceRow()
-        {
-            if (!PackSetup.TryGetVisuals(out IntPtr canonical) || !Memory.LooksLikeObject(canonical))
-                return -1;
-
-            int offset = PackSetup.VisualsTableOffset;
-            IntPtr table = offset > 0 ? Memory.Ptr(canonical + offset) : IntPtr.Zero;
-            int count = Memory.LooksLikeObject(table) ? Memory.I32(table + Offsets.Runtime.ArrayLength) : 0;
-            int stride = Stride(table, count);
-            int row = stride <= 0 ? -1 : SourceRow(table, count, stride);
-            if (row < 0) PackSetup.NoRow();
-            return row;
         }
 
         /// <summary>The helper the game's row getter calls.</summary>
@@ -310,21 +300,6 @@ namespace InFalsusChartLoader
             }
 
             return -1;
-        }
-
-        /// <summary>A row's size in bytes.</summary>
-        private static int Stride(IntPtr table, int count)
-        {
-            if (!Memory.LooksLikeObject(table) || count <= 0) return 0;
-
-            try
-            {
-                return (int)(Il2CppInterop.Runtime.IL2CPP.il2cpp_array_get_byte_length(table) / count);
-            }
-            catch (Exception)
-            {
-                return 0;
-            }
         }
 
         /// <summary>Whether a row has the materials a pack cover draws.</summary>
@@ -511,180 +486,48 @@ namespace InFalsusChartLoader
 
         private static bool _rebuildReported;
 
-        private static int _selectedField = Offsets.Unresolved;
-        private static int _backingField = Offsets.Unresolved;
-        private static int _calculatedField = Offsets.Unresolved;
-        private static int _materialField = Offsets.Unresolved;
-        private static bool _maskFieldsAsked;
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+        private delegate byte PackOwnedFn(IntPtr self, ushort packId, IntPtr methodInfo);
 
-        private static int _outlineListField = Offsets.Unresolved;
-        private static int _outlineVisualField = Offsets.Unresolved;
-        private static int _topScrollField = Offsets.Unresolved;
-        private static int _bottomScrollField = Offsets.Unresolved;
-        private static int _cardListField = Offsets.Unresolved;
-        private static int _cardVisualField = Offsets.Unresolved;
-        private static bool _listFieldsAsked;
-        private static bool _listFieldsReady;
+        private static NativeHook<PackOwnedFn> _packOwned;
+        private static PackOwnedFn _packOwnedTramp;
 
-        private static int _buttonField = Offsets.Unresolved;
-        private static readonly int[] ButtonFields = new int[7];
-        private static bool _buttonFieldsAsked;
-        private static bool _buttonFieldsReady;
-
-        private static bool _maskFailureReported;
-
-        /// <summary>The pack visual and the pack scene the screen is using.</summary>
-        internal static IntPtr PackVisual, PackScene;
-
-        /// <summary>Turns on the alpha mask of the pack screen's live materials.</summary>
-        internal static void ApplyPackMask(IntPtr self)
+        /// <summary>Makes this mod's packs count as owned for the game's own pack button.</summary>
+        private static bool InstallPackOwned()
         {
-            if (!EnsureMaskFields()) return;
-
-            ApplyMaskTo(self, _selectedField);
-            ApplyMaskTo(self, _backingField);
-        }
-
-        private static bool EnsureMaskFields()
-        {
-            if (!_maskFieldsAsked)
+            IntPtr target = MethodResolver.ByRuntime("_NH", "_AOA");
+            if (target == IntPtr.Zero)
             {
-                _maskFieldsAsked = true;
-                _selectedField = FieldResolver.Field("PackVisualMemberLarge", "selectedVisual");
-                _backingField = FieldResolver.Field("PackVisualMemberLarge", "backingVisual");
-                _calculatedField = FieldResolver.Field("Constrained2D", "Calculated");
-                _materialField = FieldResolver.Field("_ti", "_OHb");
+                Diagnostics.Warn("_NH._AOA could not be found; the custom packs keep the game's own " +
+                                 "ownership answer for the pack button");
+                return false;
             }
 
-            return _selectedField >= 0 && _backingField >= 0 &&
-                   _calculatedField >= 0 && _materialField >= 0;
-        }
-
-        private static bool EnsureListFields()
-        {
-            if (!_listFieldsAsked)
+            byte[] prologue = Prologue(target);
+            _packOwned = new NativeHook<PackOwnedFn>
             {
-                _listFieldsAsked = true;
-                _outlineListField = FieldResolver.Field("PackSelectScene", "_ff");
-                _outlineVisualField = FieldResolver.Field("PackOutlineMember", "outlineVisual");
-                _topScrollField = FieldResolver.Field("PackSelectScene", "topScrollContainer");
-                _bottomScrollField = FieldResolver.Field("PackSelectScene", "bottomScrollContainer");
-                _cardListField = FieldResolver.Field("PackSelectScrollContainer", "_jr");
-                _cardVisualField = FieldResolver.Field("PackVisualMemberSmall", "nonSelectedVisual");
-                _listFieldsReady = _outlineListField >= 0 && _outlineVisualField >= 0 &&
-                                   _topScrollField >= 0 && _bottomScrollField >= 0 &&
-                                   _cardListField >= 0 && _cardVisualField >= 0;
-            }
-
-            return _listFieldsReady;
+                Target = target,
+                Detour = (IntPtr)(delegate* unmanaged[Cdecl]<IntPtr, ushort, IntPtr, byte>)&PackOwnedDetour,
+            };
+            _packOwned.Attach();
+            _packOwnedTramp = _packOwned.Trampoline;
+            Diagnostics.Info("_NH._AOA hooked");
+            return Landed(Hook.PackOwned, target, prologue);
         }
 
-        private static bool EnsureButtonFields()
+        private static void DetachPackOwned()
         {
-            if (!_buttonFieldsAsked)
-            {
-                _buttonFieldsAsked = true;
-                _buttonField = FieldResolver.Field("SongSelectScene", "packSelectButtonContainer");
-                string[] names =
-                {
-                    "clearTypeBacking",
-                    "currentNonHoverButton",
-                    "currentHoverButton",
-                    "targetNonHoverButton",
-                    "targetHoverButton",
-                    "currentContainer",
-                    "targetContainer",
-                };
-
-                bool ready = _buttonField >= 0;
-                for (int i = 0; i < names.Length; i++)
-                {
-                    ButtonFields[i] = FieldResolver.Field("PackSelectButtonContainer", names[i]);
-                    ready &= ButtonFields[i] >= 0;
-                }
-
-                _buttonFieldsReady = ready;
-            }
-
-            return _buttonFieldsReady;
+            _packOwned?.Detach();
+            _packOwned = null;
+            _packOwnedTramp = null;
         }
 
-        /// <summary>Keeps the live pack material's alpha mask on after the game's material pass.</summary>
-        internal static void TickPackMask()
+        [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
+        private static byte PackOwnedDetour(IntPtr self, ushort packId, IntPtr methodInfo)
         {
-            if (PackVisual != IntPtr.Zero)
-                try { ApplyPackMask(PackVisual); }
-                catch (Exception e) { MaskFailed("keeping the pack's alpha mask on raised: " + Diagnostics.Describe(e)); }
-
-            if (PackScene != IntPtr.Zero)
-                try { ApplyPackMasks(PackScene); }
-                catch (Exception e) { MaskFailed("keeping the pack list's alpha mask on raised: " + Diagnostics.Describe(e)); }
-
-            IntPtr scene = SongSelectRefresh.Scene();
-            if (scene != IntPtr.Zero)
-                try { ApplyPackButtonMask(scene); }
-                catch (Exception e) { MaskFailed("keeping the pack button's alpha mask on raised: " + Diagnostics.Describe(e)); }
+            if (SongCatalog.IsCustomPack(packId)) return 1;
+            return _packOwnedTramp(self, packId, methodInfo);
         }
 
-        private static void MaskFailed(string why)
-        {
-            if (_maskFailureReported) return;
-            _maskFailureReported = true;
-            Diagnostics.Error(why);
-        }
-
-        private static void ApplyMaskTo(IntPtr self, int field)
-        {
-            IntPtr constrained = Memory.Ptr(self + field);
-            if (!Memory.LooksLikeObject(constrained)) return;
-
-            IntPtr calculated = constrained + _calculatedField;
-            IntPtr material = Memory.Ptr(calculated + _materialField);
-            if (!Memory.LooksLikeObject(material)) return;
-            if (!JacketFactory.LooksLikeMaterial(material)) return;
-
-            if (!JacketFactory.EnableAlphaMask(material))
-                MaskFailed($"the pack material at 0x{material.ToInt64():X} could not have its alpha mask turned on");
-        }
-
-        /// <summary>Turns on the alpha mask for every pack list element the row feeds.</summary>
-        internal static void ApplyPackMasks(IntPtr layer)
-        {
-            if (!Memory.LooksLikeObject(layer)) return;
-            if (!EnsureMaskFields() || !EnsureListFields()) return;
-
-            IntPtr outlines = Memory.Ptr(layer + _outlineListField);
-            if (Memory.TryList(outlines, out IntPtr outlineItems, out int outlineCount))
-                for (int i = 0; i < outlineCount; i++)
-                    ApplyMaskTo(Memory.Ptr(outlineItems + i * IntPtr.Size), _outlineVisualField);
-
-            ApplyCardMasks(layer, _topScrollField);
-            ApplyCardMasks(layer, _bottomScrollField);
-        }
-
-        private static void ApplyCardMasks(IntPtr layer, int containerField)
-        {
-            IntPtr container = Memory.Ptr(layer + containerField);
-            if (!Memory.LooksLikeObject(container)) return;
-
-            IntPtr list = Memory.Ptr(container + _cardListField);
-            if (!Memory.TryList(list, out IntPtr items, out int count)) return;
-
-            for (int i = 0; i < count; i++)
-                ApplyMaskTo(Memory.Ptr(items + i * IntPtr.Size), _cardVisualField);
-        }
-
-        /// <summary>Turns on the alpha mask for the pack button's row-fed visuals.</summary>
-        internal static void ApplyPackButtonMask(IntPtr scene)
-        {
-            if (!Memory.LooksLikeObject(scene)) return;
-            if (!EnsureMaskFields() || !EnsureButtonFields()) return;
-
-            IntPtr button = Memory.Ptr(scene + _buttonField);
-            if (!Memory.LooksLikeObject(button)) return;
-
-            foreach (int field in ButtonFields)
-                ApplyMaskTo(button, field);
-        }
     }
 }

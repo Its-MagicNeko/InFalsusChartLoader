@@ -153,6 +153,9 @@ namespace InFalsusChartLoader
         {
             try
             {
+#if DEBUG
+                PackButtonProbe.Snapshot("reload begin");
+#endif
                 if (!StreamingAssets.Resolve())
                 {
                     Diagnostics.Error("the game's asset manager is not ready; the charts were not reloaded");
@@ -251,9 +254,18 @@ namespace InFalsusChartLoader
                 CustomResults.Prepare();
                 CustomResults.MigrateAndSave();
 
+#if DEBUG
+                PackButtonProbe.Snapshot("tables replaced");
+#endif
                 SongSelectRefresh.Structure();
+#if DEBUG
+                PackButtonProbe.Snapshot("structure returned");
+#endif
                 SongSelectRefresh.RefreshDisplayedPack();
                 SongSelectRefresh.RefreshPackOutline();
+#if DEBUG
+                PackButtonProbe.Snapshot("pack refresh returned");
+#endif
                 Hooks.RefreshHub();
 
                 HashSet<IntPtr> livePictures = JacketCatalog.LiveMaterials();

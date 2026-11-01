@@ -548,8 +548,7 @@ namespace InFalsusChartLoader
                     Diagnostics.Info($"probe: pack outline refreshed (id {packId})");
             }
 
-            Hooks.ApplyPackMasks(layer);
-            Hooks.ApplyPackButtonMask(scene);
+            if (!PackSetup.SyncSceneVisuals(layer)) return;
         }
 
         /// <summary>Rebinds the pack screen's small cards for one custom pack and rewrites their texts.</summary>
@@ -564,7 +563,6 @@ namespace InFalsusChartLoader
             int touched = 0;
             touched += RebindPackCards(layer, _topPackContainerField, packId, fresh);
             touched += RebindPackCards(layer, _bottomPackContainerField, packId, fresh);
-            Hooks.ApplyPackMasks(layer);
             Diagnostics.Info($"probe: pack cards refreshed (id {packId}, cards={touched})");
         }
 

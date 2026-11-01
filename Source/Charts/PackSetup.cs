@@ -112,8 +112,6 @@ namespace InFalsusChartLoader
         /// <summary>Gives every live custom pack its row, name, cover and backing.</summary>
         internal static bool ApplyPackAssets(IntPtr packData, List<PackManifest> packs)
         {
-            if (SongCatalog.CustomPackId < 0 && packs.Count == 0) return true;
-
             if (!TryGetVisuals(out IntPtr packAssets))
             {
                 Diagnostics.Error("the pack visual table could not be reached; the custom packs were not applied");
@@ -121,18 +119,6 @@ namespace InFalsusChartLoader
             }
 
             var live = new List<int>();
-            if (SongCatalog.CustomPackId >= 0)
-            {
-                live.Add(SongCatalog.CustomPackId);
-                if (!ExtendVisuals(packAssets, SongCatalog.CustomPackId)) return false;
-                if (!SetPackName(SongCatalog.CustomPackId, SongCatalog.PackName))
-                {
-                    Diagnostics.Error("the custom pack's name could not be written; the custom packs were " +
-                                      "not applied");
-                    return false;
-                }
-            }
-
             foreach (PackManifest pack in packs)
             {
                 if (pack.PackId < 0) continue;
@@ -146,7 +132,8 @@ namespace InFalsusChartLoader
                     return false;
                 }
 
-                if (!FillPackVisuals(packAssets, pack.PackId, pack.JacketPaths, out string reason))
+                if (!pack.UseGamePictures &&
+                    !FillPackVisuals(packAssets, pack.PackId, pack.JacketPaths, out string reason))
                 {
                     Diagnostics.Error($"the pack '{pack.Name}' could not be given its pictures: {reason}");
                     return false;
@@ -221,8 +208,32 @@ namespace InFalsusChartLoader
             if (!SyncOne(sceneAssets, dataAssets, seen)) return false;
             if (!SyncOne(prefabAssets, dataAssets, seen)) return false;
             if (!SyncOne(largeAssets, dataAssets, seen)) return false;
+            if (!SyncButtonVisuals(SongSelectRefresh.Scene())) return false;
 
             return true;
+        }
+
+        /// <summary>Gives the song-select pack button the same row the song-select scene uses.</summary>
+        internal static bool SyncButtonVisuals(IntPtr scene)
+        {
+            if (!Memory.LooksLikeObject(scene)) return true;
+            if (SongCatalog.CustomPackCount == 0) return true;
+            if (!TryGetVisuals(out IntPtr dataAssets)) return false;
+
+            int buttonField = FieldResolver.Field("SongSelectScene", "packSelectButtonContainer");
+            int assetsField = FieldResolver.Field("PackSelectButtonContainer", "packSelectSceneAssets");
+            if (buttonField < 0 || assetsField < 0)
+            {
+                Diagnostics.Error("the song-select pack button's visual table could not be read by name in this " +
+                                  "build; the current pack's picture would keep the old rows");
+                return false;
+            }
+
+            IntPtr button = Memory.Ptr(scene + buttonField);
+            if (!Memory.LooksLikeObject(button)) return true;
+
+            IntPtr buttonAssets = Memory.Ptr(button + assetsField);
+            return SyncOne(buttonAssets, dataAssets, new HashSet<IntPtr>());
         }
 
         /// <summary>Copies the mod's rows into one pack-screen visual table.</summary>

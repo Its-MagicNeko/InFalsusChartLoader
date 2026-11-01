@@ -14,6 +14,9 @@ namespace InFalsusChartLoader
         /// <summary>The five language slots of the name: Simplified, Traditional, English, Japanese, Korean.</summary>
         internal string[] Names;
 
+        /// <summary>Whether picture requests use the game's In Falsus pack resources.</summary>
+        internal bool UseGamePictures;
+
         /// <summary>The five pictures: large card, background, outline, small card, song-select button.</summary>
         internal string[] JacketPaths = new string[5];
 

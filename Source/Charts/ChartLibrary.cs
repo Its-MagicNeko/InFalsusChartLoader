@@ -106,6 +106,16 @@ namespace InFalsusChartLoader
                 return result;
             }
 
+            var rootPack = new PackManifest
+            {
+                Id = string.Empty,
+                Name = "IFCL",
+                Names = new[] { "IFCL", "IFCL", "IFCL", "IFCL", "IFCL" },
+                Folder = root,
+                FolderName = FolderName,
+                UseGamePictures = true,
+            };
+
             var packIds = new HashSet<string>(StringComparer.Ordinal);
             var packNames = new HashSet<string>(StringComparer.Ordinal);
 
@@ -159,11 +169,15 @@ namespace InFalsusChartLoader
 
                 Diagnostics.Info($"chart folder '{name}': '{info.Name}' by {info.Composer}, " +
                                  $"{Levels(info)}");
+                info.Pack = rootPack;
                 result.Songs.Add(info);
             }
 
             result.Songs.Sort((left, right) => StringComparer.Ordinal.Compare(left.BaseName, right.BaseName));
             result.Packs.Sort((left, right) => StringComparer.Ordinal.Compare(left.Id, right.Id));
+
+            if (result.Songs.Exists(song => ReferenceEquals(song.Pack, rootPack)))
+                result.Packs.Insert(0, rootPack);
             return result;
         }
 

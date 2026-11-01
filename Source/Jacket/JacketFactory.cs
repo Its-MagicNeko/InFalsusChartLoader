@@ -531,106 +531,124 @@ namespace InFalsusChartLoader
             return Invoke(setter, material, args, 1, out reason);
         }
 
-        /// <summary>Keeps the source picture's alpha shape on the clone.</summary>
-        internal static bool KeepSourceAlpha(IntPtr source, IntPtr clone, out string reason)
+        /// <summary>Builds a picture with the source slot's shape in its own alpha channel.</summary>
+        internal static IntPtr BuildMaskedTexture(string path, IntPtr source, out string reason)
         {
             reason = null;
+            if (!Resolve()) { reason = "the game's texture types could not be found"; return IntPtr.Zero; }
+            IntPtr mask = MainTexture(source, out reason);
+            if (mask == IntPtr.Zero) return IntPtr.Zero;
 
-            IntPtr shape = MainTexture(source, out reason);
-            if (shape == IntPtr.Zero)
+            IntPtr target = IntPtr.Zero;
+            IntPtr readable = IntPtr.Zero;
+            IntPtr previous = IntPtr.Zero;
+            bool activeChanged = false;
+            IntPtr* restore = stackalloc IntPtr[1];
+            IntPtr renderClass = Require("RenderTexture");
+            IntPtr graphicsClass = Require("Graphics");
+            if (renderClass == IntPtr.Zero || graphicsClass == IntPtr.Zero) return IntPtr.Zero;
+
+            IntPtr activeGet = Entry(renderClass, "get_active", 0);
+            IntPtr activeSet = Entry(renderClass, "set_active", 1);
+            IntPtr blit = Entry(graphicsClass, "Blit", 4);
+            IntPtr readPixels = Entry(_textureClass, "ReadPixels", 4);
+            IntPtr getPixels = Entry(_textureClass, "GetPixels32", 0);
+            if (activeGet == IntPtr.Zero || activeSet == IntPtr.Zero || blit == IntPtr.Zero ||
+                readPixels == IntPtr.Zero || getPixels == IntPtr.Zero)
             {
-                reason = "the source material has no main texture to take the shape from";
-                return false;
+                reason = "the pack picture's alpha readback methods could not be found";
+                return IntPtr.Zero;
             }
 
-            if (!SetTexture(clone, "_Lowiro_AlphaMaskTexture", shape, out reason)) return false;
-            if (!SetFloat(clone, "_Lowiro_EnableAlphaMask", 1f, out reason)) return false;
-            if (!SetFloat(clone, "_Lowiro_AlphaMaskThreshold", 0.5f, out reason)) return false;
-            return true;
-        }
-
-        /// <summary>Turns the alpha mask on for a live material that carries one.</summary>
-        internal static unsafe bool EnableAlphaMask(IntPtr material)
-        {
-            if (!LooksLikeMaterial(material)) return false;
-
-            IntPtr key = Il2CppInterop.Runtime.IL2CPP.ManagedStringToIl2Cpp("_Lowiro_AlphaMaskTexture");
-            IntPtr getter = MaterialMethod("GetTexture", "String");
-            if (getter == IntPtr.Zero) return false;
-
-            IntPtr* args = stackalloc IntPtr[1];
-            args[0] = key;
-
-            IntPtr raised = IntPtr.Zero;
-            IntPtr texture = Il2CppInterop.Runtime.IL2CPP.il2cpp_runtime_invoke(
-                getter, material, (void**)args, ref raised);
-            if (raised != IntPtr.Zero) return false;
-            if (texture == IntPtr.Zero) return true;
-
-            return SetFloat(material, "_Lowiro_EnableAlphaMask", 1f, out _);
-        }
-
-        /// <summary>Whether a pointer is a material object this class can read.</summary>
-        internal static bool LooksLikeMaterial(IntPtr material)
-        {
-            if (!Resolve() || !Memory.LooksLikeObject(material)) return false;
-            return Il2CppInterop.Runtime.IL2CPP.il2cpp_object_get_class(material) == _materialClass;
-        }
-
-        /// <summary>Sets one texture property by name.</summary>
-        internal static unsafe bool SetTexture(IntPtr material, string property, IntPtr texture, out string reason)
-        {
-            reason = null;
-
-            IntPtr method = MaterialMethod("SetTexture", "String", "Texture");
-            if (method == IntPtr.Zero)
+            try
             {
-                reason = "Material.SetTexture(string, Texture) could not be found";
-                return false;
+                Png.Image image = Png.Decode(File.ReadAllBytes(path), out reason);
+                if (image == null) return IntPtr.Zero;
+
+                IntPtr raised = IntPtr.Zero;
+                previous = Il2CppInterop.Runtime.IL2CPP.il2cpp_runtime_invoke(activeGet, IntPtr.Zero, null, ref raised);
+                if (raised != IntPtr.Zero) { reason = Raised.Text(raised); return IntPtr.Zero; }
+
+                target = Il2CppInterop.Runtime.IL2CPP.il2cpp_object_new(renderClass);
+                if (target == IntPtr.Zero) { reason = "the alpha render target could not be allocated"; return IntPtr.Zero; }
+                int width = image.Width, height = image.Height, depth = 0;
+                IntPtr* args = stackalloc IntPtr[4];
+                IntPtr constructor = Entry(renderClass, ".ctor", 3);
+                if (constructor == IntPtr.Zero) { reason = "the alpha render target constructor could not be found"; return IntPtr.Zero; }
+                args[0] = (IntPtr)(&width);
+                args[1] = (IntPtr)(&height);
+                args[2] = (IntPtr)(&depth);
+                if (!Invoke(constructor, target, args, 3, out reason)) return IntPtr.Zero;
+
+                float* scale = stackalloc float[2];
+                scale[0] = scale[1] = 1f;
+                float* offset = stackalloc float[2];
+                offset[0] = offset[1] = 0f;
+                args[0] = mask;
+                args[1] = target;
+                args[2] = (IntPtr)scale;
+                args[3] = (IntPtr)offset;
+                if (!Invoke(blit, IntPtr.Zero, args, 4, out reason)) return IntPtr.Zero;
+
+                readable = BuildTexture(new Png.Image
+                {
+                    Width = width, Height = height, Rgba = new byte[image.Rgba.Length],
+                }, out reason);
+                if (readable == IntPtr.Zero) return IntPtr.Zero;
+
+                args[0] = target;
+                if (!Invoke(activeSet, IntPtr.Zero, args, 1, out reason)) return IntPtr.Zero;
+                activeChanged = true;
+
+                float* rect = stackalloc float[4];
+                rect[0] = rect[1] = 0f;
+                rect[2] = width;
+                rect[3] = height;
+                int zero = 0;
+                byte recalculate = 0;
+                args[0] = (IntPtr)rect;
+                args[1] = args[2] = (IntPtr)(&zero);
+                args[3] = (IntPtr)(&recalculate);
+                if (!Invoke(readPixels, readable, args, 4, out reason)) return IntPtr.Zero;
+
+                raised = IntPtr.Zero;
+                IntPtr pixels = Il2CppInterop.Runtime.IL2CPP.il2cpp_runtime_invoke(getPixels, readable, null, ref raised);
+                if (raised != IntPtr.Zero || !Memory.LooksLikeObject(pixels) ||
+                    Memory.I32(pixels + Offsets.Runtime.ArrayLength) != width * height)
+                {
+                    reason = "the pack picture's alpha pixels could not be read";
+                    return IntPtr.Zero;
+                }
+
+                byte* rgba = (byte*)(pixels + Offsets.Runtime.ArrayDataOffset);
+                for (int y = 0; y < height; y++)
+                    for (int x = 0; x < width; x++)
+                    {
+                        int at = (y * width + x) * Color32Size + 3;
+                        int shape = ((height - 1 - y) * width + x) * Color32Size + 3;
+                        image.Rgba[at] = (byte)((image.Rgba[at] * rgba[shape] + 127) / 255);
+                    }
+
+                return BuildTexture(image, out reason);
             }
-
-            IntPtr* args = stackalloc IntPtr[2];
-            args[0] = Il2CppInterop.Runtime.IL2CPP.ManagedStringToIl2Cpp(property);
-            args[1] = texture;
-            return Invoke(method, material, args, 2, out reason);
-        }
-
-        /// <summary>Sets one float property by name.</summary>
-        internal static unsafe bool SetFloat(IntPtr material, string property, float value, out string reason)
-        {
-            reason = null;
-
-            IntPtr method = MaterialMethod("SetFloat", "String", "Single");
-            if (method == IntPtr.Zero)
+            catch (Exception e)
             {
-                reason = "Material.SetFloat(string, float) could not be found";
-                return false;
+                reason = "the pack picture's alpha could not be baked: " + Diagnostics.Describe(e);
+                return IntPtr.Zero;
             }
-
-            IntPtr* args = stackalloc IntPtr[2];
-            args[0] = Il2CppInterop.Runtime.IL2CPP.ManagedStringToIl2Cpp(property);
-            args[1] = (IntPtr)(&value);
-            return Invoke(method, material, args, 2, out reason);
-        }
-
-        /// <summary>The material method that takes the named string parameters.</summary>
-        private static IntPtr MaterialMethod(string name, string first = "String", string second = null)
-        {
-            if (!Resolve()) return IntPtr.Zero;
-
-            int count = second == null ? 1 : 2;
-            IntPtr iter = IntPtr.Zero;
-            IntPtr method;
-            while ((method = Il2CppInterop.Runtime.IL2CPP.il2cpp_class_get_methods(_materialClass, ref iter)) != IntPtr.Zero)
+            finally
             {
-                if (Il2CppInterop.Runtime.IL2CPP.il2cpp_method_get_name_(method) != name) continue;
-                if ((int)Il2CppInterop.Runtime.IL2CPP.il2cpp_method_get_param_count(method) != count) continue;
-                if (TypeName(Il2CppInterop.Runtime.IL2CPP.il2cpp_method_get_param(method, 0)) != first) continue;
-                if (second != null &&
-                    TypeName(Il2CppInterop.Runtime.IL2CPP.il2cpp_method_get_param(method, 1)) != second) continue;
-                return method;
+                if (activeChanged)
+                {
+                    restore[0] = previous;
+                    IntPtr raised = IntPtr.Zero;
+                    Il2CppInterop.Runtime.IL2CPP.il2cpp_runtime_invoke(activeSet, IntPtr.Zero, (void**)restore, ref raised);
+                    if (raised != IntPtr.Zero)
+                        Diagnostics.Error("the render target could not be restored: " + Raised.Text(raised));
+                }
+                ReleaseTexture(readable);
+                ReleaseTexture(target);
             }
-            return IntPtr.Zero;
         }
 
         // ---------------------------------------------------------------- runtime plumbing

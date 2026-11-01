@@ -71,6 +71,7 @@ namespace InFalsusChartLoader
                 Hooks.Install();
 
 #if DEBUG
+                PackButtonProbe.Install();
                 Probe.Startup(root, codecReady, assetsReady, Hooks.Installed, Hooks.Attempted);
 #endif
             }
@@ -79,9 +80,6 @@ namespace InFalsusChartLoader
                 Diagnostics.Error($"chart loading failed: {Diagnostics.Describe(e)}");
             }
         }
-
-        /// <summary>Keeps the pack screen's live alpha mask on after the game's material pass.</summary>
-        internal static void LateUpdate() => Hooks.TickPackMask();
 
         /// <summary>Registers the songs once the game's tables exist.</summary>
         internal static void Update()
@@ -166,6 +164,9 @@ namespace InFalsusChartLoader
         /// <summary>Stops every detour. The loader calls this once, on the way out.</summary>
         internal static void Shutdown()
         {
+#if DEBUG
+            PackButtonProbe.Uninstall();
+#endif
             PackVisuals.ReleaseAll();
             Hooks.Uninstall();
         }

@@ -67,6 +67,7 @@ namespace InFalsusChartLoader
             Count(InstallSongSelect());
             Count(InstallDifficultyState());
             Count(InstallPackVisual());
+            Count(InstallPackOwned());
             Count(InstallPackSelect());
             Count(InstallPackList());
             Count(InstallCustomResults());
@@ -92,6 +93,7 @@ namespace InFalsusChartLoader
             DetachCustomResults();
             DetachPackSelect();
             DetachPackList();
+            DetachPackOwned();
             DetachPackVisual();
             DetachDifficultyState();
             DetachSongSelect();
@@ -141,6 +143,7 @@ namespace InFalsusChartLoader
             SongSelectApply,
             DifficultyState,
             PackVisual,
+            PackOwned,
             PackSelect,
             PackList,
             PackRow,
@@ -192,6 +195,7 @@ namespace InFalsusChartLoader
             Hook.SongSelectApply => "SongSelectScene._MN",
             Hook.DifficultyState => "_NH._UoA",
             Hook.PackVisual => "PackVisualMemberLarge._vc",
+            Hook.PackOwned => "_NH._AOA",
             Hook.PackSelect => "PackVisualMemberLarge._Ef",
             Hook.PackList => "PackSelectScene.Awake",
             Hook.PackRow => "the pack row accessor (SongSelectPackAssets[])",

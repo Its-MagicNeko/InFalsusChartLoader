@@ -156,8 +156,6 @@ namespace InFalsusChartLoader
 
             if (more == 0)
             {
-                PackVisual = IntPtr.Zero;
-                PackScene = IntPtr.Zero;
                 try { AudioCatalog.ReleaseRetired(); }
                 catch (Exception e) { ReleaseFailed(e); }
                 try { PackVisuals.ReleaseRetired(); }

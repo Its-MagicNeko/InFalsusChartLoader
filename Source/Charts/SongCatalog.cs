@@ -104,16 +104,36 @@ namespace InFalsusChartLoader
         private static int PackInfoSlug => Offsets.Pack.Slug;    // string
         private static int PackInfoSongs => Offsets.Pack.Songs;  // SongId[]
 
-        /// <summary>This mod's IFCL pack id, taken from the live pack table.</summary>
-        internal static int CustomPackId = -1;
-
         /// <summary>The pack manifest each live custom pack id belongs to.</summary>
         private static readonly Dictionary<ushort, PackManifest> LivePacks =
             new Dictionary<ushort, PackManifest>();
 
-        /// <summary>Whether a pack id is one of this mod's live packs, IFCL included.</summary>
-        internal static bool IsCustomPack(ushort id) =>
-            (CustomPackId >= 0 && id == (ushort)CustomPackId) || LivePacks.ContainsKey(id);
+        /// <summary>Whether a pack id is one of this mod's live packs.</summary>
+        internal static bool IsCustomPack(ushort id) => LivePacks.ContainsKey(id);
+
+        /// <summary>Whether picture requests for a pack use the game's resources.</summary>
+        internal static bool UsesGamePictures(ushort id) =>
+            LivePacks.TryGetValue(id, out PackManifest pack) && pack.UseGamePictures;
+
+        /// <summary>The shipped In Falsus pack whose pictures the root pack requests.</summary>
+        internal static int GamePicturePackId()
+        {
+            if (!TryGetAssets(out _, out IntPtr packData)) return -1;
+
+            IntPtr packs = Memory.Ptr(packData + PackDataPacks);
+            if (!Memory.LooksLikeObject(packs)) return -1;
+
+            int count = Memory.I32(packs + Offsets.Runtime.ArrayLength);
+            for (int i = 0; i < count; i++)
+            {
+                IntPtr row = packs + Offsets.Runtime.ArrayDataOffset + i * PackInfoSize;
+                if (Memory.Text(Memory.Ptr(row + PackInfoSlug)) == "all")
+                    return Memory.U16(row + PackInfoId);
+            }
+
+            Diagnostics.Error("the In Falsus pack could not be found; its pictures cannot be supplied");
+            return -1;
+        }
 
         /// <summary>Whether a pack id is in the live pack table.</summary>
         internal static bool LivePackExists(ushort id) => LivePackSongCount(id, out _);
@@ -121,14 +141,12 @@ namespace InFalsusChartLoader
         /// <summary>Whether a pack id is a live pack that this mod did not make.</summary>
         internal static bool IsOfficialPack(ushort id) => !IsCustomPack(id) && LivePackExists(id);
 
-        /// <summary>How many custom packs are live, IFCL included.</summary>
-        internal static int CustomPackCount => LivePacks.Count + (CustomPackId >= 0 ? 1 : 0);
+        /// <summary>How many custom packs are live.</summary>
+        internal static int CustomPackCount => LivePacks.Count;
 
-        /// <summary>The pack ids the mod has live, IFCL first.</summary>
+        /// <summary>The live custom pack ids in row order.</summary>
         internal static IEnumerable<int> LiveCustomPackIds()
         {
-            if (CustomPackId >= 0) yield return CustomPackId;
-
             var ids = new List<ushort>(LivePacks.Keys);
             ids.Sort();
             foreach (ushort id in ids) yield return id;
@@ -143,9 +161,6 @@ namespace InFalsusChartLoader
 
         /// <summary>Which difficulty each song's illustrator entry currently shows.</summary>
         private static readonly Dictionary<ushort, int> IllustratorShown = new Dictionary<ushort, int>();
-
-        /// <summary>The pack's name in the pack list. The game shows this text.</summary>
-        internal const string PackName = "IFCL";
 
         /// <summary>
         /// The difficulty flags, in the order <c>chart[0..3]</c> is written: Minimal, Evolved,
@@ -408,9 +423,9 @@ namespace InFalsusChartLoader
             internal IntPtr SongIds;
         }
 
-        /// <summary>The pack id a live pack root's <c>if</c> id was given.</summary>
-        private static readonly Dictionary<string, ushort> PackIds =
-            new Dictionary<string, ushort>(StringComparer.Ordinal);
+        /// <summary>The game pack id assigned to each live custom pack identity.</summary>
+        private static readonly Dictionary<(bool GamePictures, string Id), ushort> PackIds =
+            new Dictionary<(bool, string), ushort>();
 
         /// <summary>Groups the songs by their pack and gives every non-empty pack its id.</summary>
         private static List<PackGroup> BuildGroups(IntPtr packData, List<ChartInfo> charts,
@@ -422,45 +437,18 @@ namespace InFalsusChartLoader
             int oldCount = Memory.I32(oldPacks + Offsets.Runtime.ArrayLength);
             int next = NextPackId(oldPacks, oldCount);
 
-            var wanted = new HashSet<string>(StringComparer.Ordinal);
-            foreach (PackManifest pack in packs) wanted.Add(pack.Id);
-            foreach (string key in new List<string>(PackIds.Keys))
+            var wanted = new HashSet<(bool GamePictures, string Id)>();
+            foreach (PackManifest pack in packs) wanted.Add((pack.UseGamePictures, pack.Id));
+            foreach (var key in new List<(bool GamePictures, string Id)>(PackIds.Keys))
                 if (!wanted.Contains(key)) PackIds.Remove(key);
 
             var groups = new List<PackGroup>();
-            var ifclSongs = new List<ChartInfo>();
-            foreach (ChartInfo chart in charts)
-                if (chart.Pack == null) ifclSongs.Add(chart);
-
-            if (ifclSongs.Count > 0)
-            {
-                if (CustomPackId < 0) CustomPackId = next++;
-                else if (CustomPackId >= next)
-                {
-                    Diagnostics.Error("PackData.PackInfo and SongCatalog.PackIds are out of step; " +
-                                      "the custom packs were not written");
-                    return null;
-                }
-
-                groups.Add(new PackGroup
-                {
-                    PackId = (ushort)CustomPackId,
-                    Name = PackName,
-                    Songs = ifclSongs,
-                });
-            }
-            else
-            {
-                CustomPackId = -1;
-            }
-
             var byManifest = new Dictionary<PackManifest, List<ChartInfo>>();
             foreach (PackManifest pack in packs) byManifest[pack] = new List<ChartInfo>();
 
             foreach (ChartInfo chart in charts)
             {
-                if (chart.Pack == null) continue;
-                if (!byManifest.TryGetValue(chart.Pack, out List<ChartInfo> songs))
+                if (chart.Pack == null || !byManifest.TryGetValue(chart.Pack, out List<ChartInfo> songs))
                 {
                     Diagnostics.Error("a custom song names a pack that was not imported; the custom packs " +
                                       "were not written");
@@ -473,18 +461,19 @@ namespace InFalsusChartLoader
             LivePacks.Clear();
             foreach (PackManifest pack in packs)
             {
+                var key = (pack.UseGamePictures, pack.Id);
                 List<ChartInfo> songs = byManifest[pack];
                 if (songs.Count == 0)
                 {
                     pack.PackId = -1;
-                    PackIds.Remove(pack.Id);
+                    PackIds.Remove(key);
                     continue;
                 }
 
-                if (!PackIds.TryGetValue(pack.Id, out ushort packId))
+                if (!PackIds.TryGetValue(key, out ushort packId))
                 {
                     packId = (ushort)next++;
-                    PackIds[pack.Id] = packId;
+                    PackIds[key] = packId;
                 }
                 else if (packId >= next)
                 {
@@ -894,8 +883,6 @@ namespace InFalsusChartLoader
         internal static string PackScreenSignature()
         {
             var parts = new List<string>();
-            if (CustomPackId >= 0) parts.Add($"i{CustomPackId}");
-
             var packs = new List<PackManifest>(LivePacks.Values);
             packs.Sort((left, right) => left.PackId.CompareTo(right.PackId));
             foreach (PackManifest pack in packs)

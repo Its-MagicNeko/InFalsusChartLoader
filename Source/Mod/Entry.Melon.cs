@@ -16,8 +16,6 @@ namespace InFalsusChartLoader
 
         public override void OnUpdate() => ModCore.Update();
 
-        public override void OnLateUpdate() => ModCore.LateUpdate();
-
         public override void OnDeinitializeMelon() => ModCore.Shutdown();
     }
 }
