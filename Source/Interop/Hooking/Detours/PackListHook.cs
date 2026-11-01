@@ -13,9 +13,6 @@ namespace InFalsusChartLoader
         private static NativeHook<PackListFn> _packListHook;
         private static PackListFn _packListTramp;
 
-        /// <summary>Pack screens built.</summary>
-        internal static long PackListsBuilt;
-
         private static bool InstallPackList()
         {
             IntPtr info = MethodResolver.MethodInfoByRuntime("PackSelectScene", "Awake");
@@ -52,6 +49,7 @@ namespace InFalsusChartLoader
         private static void PackListDetour(IntPtr self, IntPtr methodInfo)
         {
             Diagnostics.Info("probe: pack list detour begin");
+#if DEBUG
             if (PackSetup.TryGetVisuals(out IntPtr dataAssets))
             {
                 int field = FieldResolver.Field("PackSelectScene", "packSelectSceneAssets");
@@ -60,6 +58,7 @@ namespace InFalsusChartLoader
                                  $"scene=0x{sceneAssets.ToInt64():X}");
             }
 
+#endif
             if (!Faulted && !PackSetup.SyncSceneVisuals(self))
             {
                 Diagnostics.Error("the scene's own visual rows could not be filled; the category layer " +
@@ -70,7 +69,6 @@ namespace InFalsusChartLoader
             if (PackScreenRebuild.InProgress)
             {
                 _packListTramp(self, methodInfo);
-                PackListsBuilt++;
                 if (!Faulted) PackScreenRebuild.SnapScrolls(self);
                 Diagnostics.Info("probe: pack list detour done (rebuild)");
                 return;
@@ -84,7 +82,6 @@ namespace InFalsusChartLoader
             Diagnostics.Info("probe: pack list detour deselect done");
 
             _packListTramp(self, methodInfo);
-            PackListsBuilt++;
             Diagnostics.Info("probe: pack list detour awake done");
 
             if (!Faulted) SongSelectRefresh.NotePackScreenBuilt(SongCatalog.PackScreenSignature());

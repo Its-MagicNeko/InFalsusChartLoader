@@ -28,9 +28,7 @@ namespace InFalsusChartLoader
         [Conditional("DEBUG")]
         internal static void Info(string message)
         {
-#if DEBUG
             Sink.Msg(message);
-#endif
         }
 
         /// <summary>The startup state every build reports.</summary>
@@ -46,9 +44,7 @@ namespace InFalsusChartLoader
         [Conditional("DEBUG")]
         internal static void Warn(string message)
         {
-#if DEBUG
             Sink.Warning(message);
-#endif
         }
 
         /// <summary>An exception chain flattened into one line.</summary>

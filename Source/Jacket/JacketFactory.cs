@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Reflection;
 
 namespace InFalsusChartLoader
 {
@@ -47,9 +46,6 @@ namespace InFalsusChartLoader
         /// <summary>Where the Unity types live.</summary>
         private const string Assembly = "UnityEngine.CoreModule.dll";
         private const string Namespace = "UnityEngine";
-
-        /// <summary>The same assembly under the name reflection knows it by.</summary>
-        private const string AssemblyName = "UnityEngine.CoreModule";
 
         /// <summary>The constructor wanted, as its parameter type names in order.</summary>
         private static readonly string[] ConstructorWanted =
@@ -171,7 +167,7 @@ namespace InFalsusChartLoader
             IntPtr texture = BuildTexture(pngPath, out reason);
             if (texture == IntPtr.Zero) return IntPtr.Zero;
 
-            IntPtr material = BuildMaterial(texture, what, out reason);
+            IntPtr material = BuildMaterial(texture, out reason);
             if (material == IntPtr.Zero) return IntPtr.Zero;
 
             Diagnostics.Info($"{what} '{Path.GetFileName(pngPath)}' ready");
@@ -228,7 +224,7 @@ namespace InFalsusChartLoader
                 return IntPtr.Zero;
             }
 
-            IntPtr material = BuildMaterial(texture, what, out reason);
+            IntPtr material = BuildMaterial(texture, out reason);
             if (material != IntPtr.Zero) Diagnostics.Info($"{what} material built over its own texture");
             return material;
         }
@@ -358,7 +354,7 @@ namespace InFalsusChartLoader
         }
 
         /// <summary>A <c>Material</c> whose main texture is <paramref name="texture"/>.</summary>
-        private static IntPtr BuildMaterial(IntPtr texture, string what, out string reason)
+        private static IntPtr BuildMaterial(IntPtr texture, out string reason)
         {
             reason = null;
 
@@ -697,7 +693,9 @@ namespace InFalsusChartLoader
                     }
 
                     string name = Name(method);
+#if DEBUG
                     if (walked <= MethodsToLog) Diagnostics.Info($"  {typeName} method {walked}: '{(name ?? "(null)")}'");
+#endif
 
                     if (name != ".ctor") continue;
 
@@ -833,10 +831,10 @@ namespace InFalsusChartLoader
             return *(byte*)(boxed + Offsets.Runtime.BoxedData) != 0;
         }
 
+#if DEBUG
         /// <summary>The first words at an address, as hex.</summary>
         internal static string Words(IntPtr address, int count)
         {
-#if DEBUG
             var text = new System.Text.StringBuilder();
             for (int i = 0; i < count; i++)
             {
@@ -845,10 +843,8 @@ namespace InFalsusChartLoader
                 text.Append(Memory.Ptr(at).ToInt64().ToString("X"));
             }
             return text.ToString();
-#else
-            return null;
-#endif
         }
+#endif
 
         /// <summary>The class a method says it belongs to, or null.</summary>
         private static string DeclaringTypeName(IntPtr method)
@@ -864,19 +860,6 @@ namespace InFalsusChartLoader
             IntPtr klass = Il2CppInterop.Runtime.IL2CPP.il2cpp_class_from_type(type);
             if (klass == IntPtr.Zero) return null;
             return Il2CppInterop.Runtime.IL2CPP.il2cpp_class_get_name_(klass);
-        }
-
-        /// <summary>The generated type for a name, from the loaded assembly.</summary>
-        private static Type GeneratedType(string typeName)
-        {
-            foreach (Assembly asm in AppDomain.CurrentDomain.GetAssemblies())
-            {
-                if (asm.GetName().Name != AssemblyName) continue;
-                return asm.GetType(Namespace + "." + typeName, throwOnError: false);
-            }
-
-            Diagnostics.Warn($"no loaded assembly is named '{AssemblyName}', so {typeName} cannot be reached");
-            return null;
         }
 
         /// <summary>Whether an object is known to have no native object behind it.</summary>
@@ -981,7 +964,9 @@ namespace InFalsusChartLoader
         /// <summary>How many methods a class may report before the walk is treated as broken.</summary>
         private const int MethodsWalkLimit = 4096;
 
+#if DEBUG
         /// <summary>How many entries of a method walk are logged by name.</summary>
         private const int MethodsToLog = 30;
+#endif
     }
 }

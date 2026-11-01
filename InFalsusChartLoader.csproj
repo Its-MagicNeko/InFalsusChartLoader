@@ -72,7 +72,7 @@
     <Compile Remove="Source\Mod\Entry.BepInEx.cs" Condition="'$(Loader)' != 'BepInEx'" />
 
     <!-- The probes are Debug-only. -->
-    <Compile Remove="Source\Probe\**\*.cs" Condition="'$(Configuration)' == 'Release' Or '$(Configuration)' == 'BepInExRelease'" />
+    <Compile Remove="Source\Probe\**\*.cs" Condition="'$(Configuration)' != 'Debug' And '$(Configuration)' != 'BepInExDebug'" />
   </ItemGroup>
 
   <!-- Compile-time references; the loader supplies them at runtime. -->

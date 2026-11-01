@@ -15,7 +15,9 @@ namespace InFalsusChartLoader
         private static PackViewFn _packViewTramp;
 
         /// <summary>Pack-screen rebuilds seen, and how many were given a fresh custom pack view.</summary>
+#if DEBUG
         internal static long PackSelectCalls, PackViewSwaps;
+#endif
 
         private static bool InstallPackSelect()
         {
@@ -54,7 +56,9 @@ namespace InFalsusChartLoader
         private static void PackViewDetour(IntPtr self, IntPtr layer, IntPtr info, int index, int direction,
                                            IntPtr methodInfo)
         {
+#if DEBUG
             PackSelectCalls++;
+#endif
 
             if (!Faulted)
             {
@@ -65,7 +69,9 @@ namespace InFalsusChartLoader
                     {
                         SongSelectRefresh.AdoptPackView(layer, fresh);
                         info = fresh;
+#if DEBUG
                         PackViewSwaps++;
+#endif
                     }
                 }
                 catch (Exception e)

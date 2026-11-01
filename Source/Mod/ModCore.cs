@@ -71,6 +71,7 @@ namespace InFalsusChartLoader
                 Hooks.Install();
 
 #if DEBUG
+                SelectionRestoreProbe.Install();
                 PackButtonProbe.Install();
                 Probe.Startup(root, codecReady, assetsReady, Hooks.Installed, Hooks.Attempted);
 #endif
@@ -101,12 +102,6 @@ namespace InFalsusChartLoader
                     return;
                 }
 
-                if (_imported.Count == 0 && _importedPacks.Count == 0)
-                {
-                    _registered = true;
-                    return;
-                }
-
                 if (_imported.Count == 0)
                 {
                     _registered = true;
@@ -114,6 +109,7 @@ namespace InFalsusChartLoader
                 }
 
 #if DEBUG
+                SelectionRestoreProbe.Snapshot("registration before");
                 PackSetup.TryGetVisuals(out IntPtr packAssetsForProbe);
                 Probe.Before(songData, packData, packAssetsForProbe);
 #endif
@@ -136,7 +132,10 @@ namespace InFalsusChartLoader
                     return;
                 }
 
-                int added = SongCatalog.Inject(songData, packData, ready, _importedPacks);
+                int added = SongCatalog.ReplaceCustoms(songData, packData, ready, _importedPacks);
+#if DEBUG
+                SelectionRestoreProbe.Snapshot($"registration after added={added}");
+#endif
                 _registered = true;
 
                 if (added == 0)
@@ -165,6 +164,7 @@ namespace InFalsusChartLoader
         internal static void Shutdown()
         {
 #if DEBUG
+            SelectionRestoreProbe.Uninstall();
             PackButtonProbe.Uninstall();
 #endif
             PackVisuals.ReleaseAll();

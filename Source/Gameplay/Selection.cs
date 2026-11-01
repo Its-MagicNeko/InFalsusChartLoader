@@ -38,7 +38,9 @@ namespace InFalsusChartLoader
             int index = IndexOf(Memory.U8(payload + PayloadDifficulty));
             if (index < 0)
             {
+#if DEBUG
                 Refused(payload, $"the difficulty byte is not one of the four flags");
+#endif
                 return false;
             }
 
@@ -46,7 +48,9 @@ namespace InFalsusChartLoader
 
             if (!Memory.LooksLikeObject(Memory.Ptr(song + SongInfoCharts)))
             {
+#if DEBUG
                 Refused(payload, "the selected song has no chart array");
+#endif
                 return false;
             }
 
@@ -74,11 +78,10 @@ namespace InFalsusChartLoader
             return true;
         }
 
+#if DEBUG
         /// <summary>Logs the payload when a read is refused, once.</summary>
-        [System.Diagnostics.Conditional("DEBUG")]
         private static void Refused(IntPtr payload, string why)
         {
-#if DEBUG
             if (_refused) return;
             _refused = true;
 
@@ -98,10 +101,8 @@ namespace InFalsusChartLoader
                              $"{Memory.U8(payload + PayloadDifficulty + 1):X2} " +
                              $"{Memory.U8(payload + PayloadDifficulty + 2):X2} " +
                              $"{Memory.U8(payload + PayloadDifficulty + 3):X2} (as a byte, then as an int)");
-#endif
         }
 
-#if DEBUG
         private static bool _refused;
 #endif
 
@@ -123,7 +124,9 @@ namespace InFalsusChartLoader
 
         private static int _applied = -1;
 
+#if DEBUG
         private static ushort _appliedSong;
+#endif
 
         /// <summary>Records the selection and answers whether its difficulty changed.</summary>
         internal static bool Applying(IntPtr scene, ushort songId, byte difficultyFlag)
@@ -131,7 +134,9 @@ namespace InFalsusChartLoader
             if (IndexOf(difficultyFlag) < 0) return false;   // not one of the four: whatever was applied last stands
 
             bool changed = ApplyingDifficulty(difficultyFlag);
+#if DEBUG
             _appliedSong = songId;
+#endif
 
             if (Memory.LooksLikeObject(scene)) Hooks.SongSelect = scene;
 
@@ -177,11 +182,13 @@ namespace InFalsusChartLoader
             Memory.WriteU16(scene + SelectedSong, songId);
         }
 
+#if DEBUG
         /// <summary>The song the last applied selection named. Reported by the probe.</summary>
         internal static int AppliedSong => _appliedSong;
 
         /// <summary>The difficulty it named, 0..3, or -1 before the first one. Reported by the probe.</summary>
         internal static int AppliedDifficulty => _applied;
+#endif
 
         /// <summary>The selected difficulty, 0..3, or -1.</summary>
         internal static int Difficulty()

@@ -169,6 +169,7 @@ namespace InFalsusChartLoader
             return true;
         }
 
+#if DEBUG
         /// <summary>Logs the first note records when a chart is refused.</summary>
         private static void Dump(IntPtr items, int count)
         {
@@ -185,6 +186,7 @@ namespace InFalsusChartLoader
             }
         }
 
+#endif
         /// <summary>The four note types the shipped charts contain: tap, hold, flick, sky area.</summary>
         private static bool IsNoteType(int type) => type == 1 || type == 2 || type == 4 || type == 5;
 

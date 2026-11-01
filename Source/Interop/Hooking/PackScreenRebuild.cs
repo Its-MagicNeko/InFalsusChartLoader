@@ -86,14 +86,18 @@ namespace InFalsusChartLoader
                 if (held)
                     held = !SongSelectRefresh.SetSelectedPack(heldPack);
 
+#if DEBUG
                 int afterAwake = Memory.I32(layer + _packIndexField);
+#endif
 
                 int target = PackIndex(layer, shownPack);
                 if (target >= 0 && Memory.I32(layer + _packIndexField) != target)
                     Invoke(layer, _selectInfo, target);
 
+#if DEBUG
                 Diagnostics.Info($"probe: pack screen position shown={shown} pack={shownPack} -> {target} " +
                                  $"packs={PackCount(layer)} awake={afterAwake}");
+#endif
 
                 Invoke(layer, _difficultyInfo, difficulty);
                 rebuilt = true;

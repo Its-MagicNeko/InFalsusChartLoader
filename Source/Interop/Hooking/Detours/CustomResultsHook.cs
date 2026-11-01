@@ -157,7 +157,9 @@ namespace InFalsusChartLoader
         private static byte ReadResultDetour(IntPtr results, IntPtr songInfo, byte difficulty,
                                              IntPtr result, IntPtr methodInfo)
         {
+#if DEBUG
             CustomResults.Reads++;
+#endif
 
             IntPtr table = results;
             if (!Faulted)
@@ -170,7 +172,9 @@ namespace InFalsusChartLoader
                     if (CustomResults.IsOurs(songInfo))
                     {
                         if (!CustomResults.Ready) return 0;
+#if DEBUG
                         CustomResults.Served++;
+#endif
                         table = CustomResults.Table;
                     }
                 }
@@ -193,7 +197,9 @@ namespace InFalsusChartLoader
                                                  IntPtr miss, IntPtr lamp, IntPtr rank, IntPtr clear,
                                                  IntPtr methodInfo)
         {
+#if DEBUG
             CustomResults.Reads++;
+#endif
 
             IntPtr table = results;
             if (!Faulted)
@@ -206,7 +212,9 @@ namespace InFalsusChartLoader
                     if (CustomResults.IsOurs(songInfo))
                     {
                         if (!CustomResults.Ready) return 0;
+#if DEBUG
                         CustomResults.Served++;
+#endif
                         table = CustomResults.Table;
                     }
                 }
@@ -228,7 +236,9 @@ namespace InFalsusChartLoader
         private static int UpdateResultDetour(IntPtr results, IntPtr songInfo, IntPtr newResult,
                                               IntPtr existingScore, IntPtr methodInfo)
         {
+#if DEBUG
             CustomResults.Updates++;
+#endif
 
             bool ours = false;
             IntPtr table = results;
@@ -253,7 +263,9 @@ namespace InFalsusChartLoader
 
             if (ours)
             {
+#if DEBUG
                 CustomResults.Merged++;
+#endif
                 CustomResults.Save();
             }
 
@@ -264,7 +276,9 @@ namespace InFalsusChartLoader
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
         private static byte UpdateEncounterDetour(IntPtr results, IntPtr newResult, IntPtr methodInfo)
         {
+#if DEBUG
             CustomResults.EncounterWrites++;
+#endif
 
             if (!Faulted)
             {
@@ -285,8 +299,8 @@ namespace InFalsusChartLoader
 
                     if (ours)
                     {
-                        CustomResults.EncounterDropped++;
 #if DEBUG
+                        CustomResults.EncounterDropped++;
                         Diagnostics.Info($"the encounter result of '{JacketCatalog.NameOf(playing) ?? "?"}' " +
                                          "was not written (a custom song keeps no encounter record)");
 #endif

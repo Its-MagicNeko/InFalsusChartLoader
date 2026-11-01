@@ -185,7 +185,9 @@ namespace InFalsusChartLoader
         private static IntPtr ApADetour(IntPtr songData, IntPtr songInfo, byte large, IntPtr methodInfo)
         {
             IntPtr fallback = _apaTramp(songData, songInfo, large, methodInfo);
+#if DEBUG
             ApACalls++;
+#endif
 
             if (!Faulted)
             {
@@ -197,7 +199,9 @@ namespace InFalsusChartLoader
                     if (JacketCatalog.Find(songInfo, out IntPtr material))
                     {
                         JacketCatalog.Arm(fallback, material, false);
+#if DEBUG
                         ApAArmed++;
+#endif
                     }
                     else JacketCatalog.Disarm();
                 }
@@ -219,7 +223,9 @@ namespace InFalsusChartLoader
         private static IntPtr MiaDetour(IntPtr owner, IntPtr releaser, IntPtr reference, byte forceReload,
                                         IntPtr methodInfo)
         {
+#if DEBUG
             MiaCalls++;
+#endif
 
             if (!Faulted)
             {
@@ -230,8 +236,8 @@ namespace InFalsusChartLoader
                 {
                     if (JacketCatalog.TryClaim(reference, out IntPtr material, out bool _))
                     {
-                        MiaClaimed++;
 #if DEBUG
+                        MiaClaimed++;
                         TicksMia += Now - t0;
 #endif
                         return material;
@@ -254,7 +260,9 @@ namespace InFalsusChartLoader
         private static IntPtr ZoaDetour(IntPtr songData, IntPtr chartInfo, byte large, IntPtr methodInfo)
         {
             IntPtr fallback = _zoaTramp(songData, chartInfo, large, methodInfo);
+#if DEBUG
             ZoaCalls++;
+#endif
 
             if (!Faulted)
             {
@@ -263,7 +271,9 @@ namespace InFalsusChartLoader
                     if (JacketCatalog.FindByChart(chartInfo, out IntPtr material))
                     {
                         JacketCatalog.Arm(fallback, material, false);
+#if DEBUG
                         ZoaArmed++;
+#endif
                     }
                     else JacketCatalog.Disarm();
                 }
@@ -281,7 +291,9 @@ namespace InFalsusChartLoader
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
         private static IntPtr LiaDetour(IntPtr owner, IntPtr reference, IntPtr methodInfo)
         {
+#if DEBUG
             LiaCalls++;
+#endif
 
             if (!Faulted)
             {
@@ -289,7 +301,9 @@ namespace InFalsusChartLoader
                 {
                     if (JacketCatalog.TryClaim(reference, out IntPtr material, out bool background))
                     {
+#if DEBUG
                         LiaClaimed++;
+#endif
                         return background
                             ? CloneBackground(owner, reference, material, methodInfo)
                             : material;
@@ -335,7 +349,9 @@ namespace InFalsusChartLoader
         private static IntPtr UmaDetour(IntPtr backgrounds, int background, IntPtr methodInfo)
         {
             IntPtr fallback = _umaTramp(backgrounds, background, methodInfo);
+#if DEBUG
             UmaCalls++;
+#endif
 
             if (!Faulted)
             {
@@ -350,7 +366,9 @@ namespace InFalsusChartLoader
                     if (armed)
                     {
                         JacketCatalog.Arm(fallback, entry.Material, true);
+#if DEBUG
                         UmaArmed++;
+#endif
                     }
                     else
                     {
@@ -360,7 +378,9 @@ namespace InFalsusChartLoader
 
                         if (why != null)
                         {
+#if DEBUG
                             UmaUnset++;
+#endif
                             Diagnostics.Warn($"the in-play background was not replaced: {why}");
                         }
                     }

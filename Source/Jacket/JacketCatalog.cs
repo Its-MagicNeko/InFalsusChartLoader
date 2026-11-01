@@ -38,10 +38,12 @@ namespace InFalsusChartLoader
         /// <summary>Whether the armed load is the in-play background.</summary>
         private static bool _armedBackground;
 
+#if DEBUG
         internal static int Count => ByBase.Count;
 
         /// <summary>Handshakes seen.</summary>
         internal static long Asked, Claimed;
+#endif
 
         /// <summary>The `SongChartInfo` stride.</summary>
         private static int ChartInfoSize => Offsets.Chart.Size;
@@ -271,14 +273,18 @@ namespace InFalsusChartLoader
                 material = At(materials, Selection.Difficulty());
                 if (material != IntPtr.Zero)
                 {
+#if DEBUG
                     Asked++;
+#endif
                     return true;
                 }
             }
 
             if (Imported.Contains(baseName))
             {
+#if DEBUG
                 Hooks.ApaAsked++;
+#endif
                 Diagnostics.Warn($"jacket asked for '{baseName}' - ours, but no picture was available " +
                                  "for the selected difficulty");
             }
@@ -311,7 +317,9 @@ namespace InFalsusChartLoader
             material = _armedMaterial;
             background = _armedBackground;
             Disarm();
+#if DEBUG
             Claimed++;
+#endif
             return true;
         }
     }

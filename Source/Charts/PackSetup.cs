@@ -110,7 +110,7 @@ namespace InFalsusChartLoader
         }
 
         /// <summary>Gives every live custom pack its row, name, cover and backing.</summary>
-        internal static bool ApplyPackAssets(IntPtr packData, List<PackManifest> packs)
+        internal static bool ApplyPackAssets(List<PackManifest> packs)
         {
             if (!TryGetVisuals(out IntPtr packAssets))
             {
@@ -133,7 +133,7 @@ namespace InFalsusChartLoader
                 }
 
                 if (!pack.UseGamePictures &&
-                    !FillPackVisuals(packAssets, pack.PackId, pack.JacketPaths, out string reason))
+                    !PackVisuals.Rebuild(packAssets, pack.PackId, pack.JacketPaths, out string reason))
                 {
                     Diagnostics.Error($"the pack '{pack.Name}' could not be given its pictures: {reason}");
                     return false;
@@ -143,11 +143,6 @@ namespace InFalsusChartLoader
             PackVisuals.Prune(live);
             return true;
         }
-
-        /// <summary>Puts a pack's five pictures on its row, using clones of the game's own materials.</summary>
-        internal static bool FillPackVisuals(IntPtr packAssets, int packId, string[] jacketPaths,
-                                             out string reason) =>
-            PackVisuals.Rebuild(packAssets, packId, jacketPaths, out reason);
 
         /// <summary>Gives the pack screen's own visual tables the rows the reload built.</summary>
         internal static bool SyncSceneVisuals(IntPtr scene)
@@ -398,9 +393,6 @@ namespace InFalsusChartLoader
         private enum TextWhat { PackName, SongText }
 
         /// <summary>Gives the pack a name in all five language slots.</summary>
-        internal static bool SetPackName(int packId, string name) => SetPackName(packId, SameName(name));
-
-        /// <summary>Gives the pack a name in all five language slots.</summary>
         internal static bool SetPackName(int packId, string[] names)
         {
             // The field is read here, after `ResolveFields` — not at the call site, for the reason
@@ -439,7 +431,9 @@ namespace InFalsusChartLoader
 
             if (names == null || names.Length != 5)
             {
+#if DEBUG
                 NotWritten(what, "the name does not have five language slots");
+#endif
                 return false;
             }
 
@@ -452,14 +446,18 @@ namespace InFalsusChartLoader
             IntPtr mapping = Memory.Ptr(statics + StringMappingField);
             if (!Memory.LooksLikeObject(mapping))
             {
+#if DEBUG
                 NotWritten(what, "the localisation table is missing");
+#endif
                 return false;
             }
 
             IntPtr typeMapping = Memory.Ptr(mapping + mappingField);
             if (!Memory.LooksLikeObject(typeMapping))
             {
+#if DEBUG
                 NotWritten(what, $"the localisation mapping at +0x{mappingField:X} is missing");
+#endif
                 return false;
             }
 
@@ -469,7 +467,9 @@ namespace InFalsusChartLoader
             IntPtr table = Memory.Ptr(typeMapping + at);
             if (!Memory.LooksLikeObject(table))
             {
+#if DEBUG
                 NotWritten(what, $"the localisation table at +0x{mappingField:X} is missing");
+#endif
                 return false;
             }
 
@@ -480,21 +480,16 @@ namespace InFalsusChartLoader
             return true;
         }
 
+#if DEBUG
         /// <summary>Says which write could not be made.</summary>
-        [System.Diagnostics.Conditional("DEBUG")]
         private static void NotWritten(TextWhat what, string where) =>
             Diagnostics.Warn($"{where}; {Name(what)}");
 
-        /// <summary>The two writes by name. Null in a Release build — see <see cref="TextWhat"/>.</summary>
-        private static string Name(TextWhat what)
-        {
-#if DEBUG
-            return what == TextWhat.PackName ? "the custom pack will have no name"
-                                             : "the song will have no text of its own";
-#else
-            return null;
+        /// <summary>The two writes by name.</summary>
+        private static string Name(TextWhat what) =>
+            what == TextWhat.PackName ? "the custom pack will have no name"
+                                     : "the song will have no text of its own";
 #endif
-        }
 
         /// <summary>Where the mapping field sits.</summary>
         private static int MappingOffset(IntPtr typeMapping)

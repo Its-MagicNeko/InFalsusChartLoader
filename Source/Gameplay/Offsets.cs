@@ -1,5 +1,3 @@
-using System;
-
 namespace InFalsusChartLoader
 {
     /// <summary>Where things are inside the game's objects.</summary>

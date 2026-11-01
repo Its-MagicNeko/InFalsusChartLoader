@@ -162,7 +162,7 @@ namespace InFalsusChartLoader
             byte[] pixels;
             try
             {
-                pixels = Unfilter(raw, width, height, channels, stride);
+                pixels = Unfilter(raw, height, channels, stride);
             }
             catch (Exception e)
             {
@@ -206,7 +206,7 @@ namespace InFalsusChartLoader
         }
 
         /// <summary>Undoes the per-row filter.</summary>
-        private static byte[] Unfilter(byte[] raw, int width, int height, int channels, int stride)
+        private static byte[] Unfilter(byte[] raw, int height, int channels, int stride)
         {
             var pixels = new byte[stride * height];
             int from = 0;

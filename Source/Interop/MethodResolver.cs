@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using System.Reflection;
 
 namespace InFalsusChartLoader
@@ -88,11 +87,13 @@ namespace InFalsusChartLoader
 
                     IntPtr code = *(IntPtr*)method;
 
+#if DEBUG
                     Diagnostics.Info($"  {typeName}.{name}: code=0x{code.ToInt64():X} " +
                                      $"generic={Il2CppInterop.Runtime.IL2CPP.il2cpp_method_is_generic(method)} " +
                                      $"inflated={Il2CppInterop.Runtime.IL2CPP.il2cpp_method_is_inflated(method)} " +
                                      $"params={(int)Il2CppInterop.Runtime.IL2CPP.il2cpp_method_get_param_count(method)} " +
                                      $"words={JacketFactory.Words(method, 4)}");
+#endif
 
                     if (code != IntPtr.Zero && found == IntPtr.Zero)
                     {
@@ -211,10 +212,12 @@ namespace InFalsusChartLoader
                     return IntPtr.Zero;
                 }
 
+#if DEBUG
                 string argumentName = Il2CppInterop.Runtime.IL2CPP.il2cpp_class_get_name_(argument) ?? "?";
                 IntPtr code = *(IntPtr*)native;
                 Diagnostics.Info($"  {typeName}.{methodName}<{argumentName}>: code=0x{code.ToInt64():X} " +
                                  $"words={JacketFactory.Words(native, 4)}");
+#endif
                 return native;
             }
             catch (Exception e)

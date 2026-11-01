@@ -16,8 +16,10 @@ namespace InFalsusChartLoader
         private static int _viewListField = Offsets.Unresolved;
         private static int _leftCardField = Offsets.Unresolved;
         private static int _rightCardField = Offsets.Unresolved;
+#if DEBUG
         private static int _cardListField = Offsets.Unresolved;
         private static int _cardIndexField = Offsets.Unresolved;
+#endif
         private static int _selectedIndexField = Offsets.Unresolved;
         private static IntPtr _gcInfo;
         private static IntPtr _aoAInfo;
@@ -118,10 +120,12 @@ namespace InFalsusChartLoader
                     return;
                 }
 
-                bool copied = SongCatalog.CopyPackTo(pack + _ihPackField, packId);
-                Diagnostics.Info($"probe: refresh pack={packId} copied={copied} ids={IdsText(pack + _ihPackField)} " +
+                SongCatalog.CopyPackTo(pack + _ihPackField, packId);
+#if DEBUG
+                Diagnostics.Info($"probe: refresh pack={packId} ids={IdsText(pack + _ihPackField)} " +
                                  $"all={SongCatalog.AllSongCount()} ffb={SongCatalog.SongListLength()} " +
                                  $"songs={ListCount(scene, _songsListField)} views={ListCount(scene, _viewListField)}");
+#endif
 
                 fresh = BuildPack(scene, pack + _ihPackField);
                 if (fresh == IntPtr.Zero)
@@ -156,15 +160,18 @@ namespace InFalsusChartLoader
             RefreshCards(scene);
             if (!rebuildPending) RefreshPackScreen(layer, fresh, slot);
 
+#if DEBUG
             Diagnostics.Info($"probe: refresh after songs={ListCount(scene, _songsListField)} " +
                              $"views={ListCount(scene, _viewListField)} qr={SongIdsText(scene, _songsListField)}");
             LogCards(scene, _leftCardField, "left");
             LogCards(scene, _rightCardField, "right");
+#endif
 
             if (rebuildPending)
                 PackScreenRebuild.Rebuild(scene);
         }
 
+#if DEBUG
         /// <summary>The ids a scene's SongInfo list holds, as text, or "?".</summary>
         private static string SongIdsText(IntPtr scene, int field)
         {
@@ -189,6 +196,7 @@ namespace InFalsusChartLoader
             return text.ToString();
         }
 
+#endif
         /// <summary>Hands the rebuilt view list to both card containers.</summary>
         private static void RefreshCards(IntPtr scene)
         {
@@ -291,7 +299,9 @@ namespace InFalsusChartLoader
                 return;
             }
 
+#if DEBUG
             Hooks.PackVisualRebuilds++;
+#endif
         }
 
         /// <summary>
@@ -648,6 +658,7 @@ namespace InFalsusChartLoader
             return Memory.I32(boxed + Offsets.Runtime.BoxedData);
         }
 
+#if DEBUG
         /// <summary>What one card scroll container holds after the refresh.</summary>
         private static void LogCards(IntPtr scene, int field, string side)
         {
@@ -661,6 +672,7 @@ namespace InFalsusChartLoader
                              $"selected={Memory.I32(scene + _selectedIndexField)}");
         }
 
+#endif
         /// <summary>Rebuilds and sorts the list without the pack-select transition.</summary>
         private static void ApplyInline(IntPtr scene, IntPtr pack)
         {
@@ -675,7 +687,9 @@ namespace InFalsusChartLoader
 
             ushort selected = Memory.U16(scene + _selectedField);
             bool shadowed = Selection.ForcePictureReload(scene, selected);
+#if DEBUG
             if (shadowed) Hooks.ApplyReloaded++;
+#endif
 
             args[0] = (IntPtr)(&selected);
             Invoke(_onInfo, scene, args, "the song could not be selected");
@@ -733,7 +747,6 @@ namespace InFalsusChartLoader
         internal const string PackListUnavailable =
             "the pack list is not in this build; an empty custom pack will keep its category entry";
 
-        /// <summary>Resolves what taking a pack out of the live category screen needs.</summary>
         /// <summary>A fresh pack view model built from the live row.</summary>
         private static IntPtr BuildPack(IntPtr scene, IntPtr packInfo)
         {
@@ -992,6 +1005,7 @@ namespace InFalsusChartLoader
             return pack;
         }
 
+#if DEBUG
         /// <summary>The ids a pack copy holds, as text, or "?".</summary>
         private static string IdsText(IntPtr pack)
         {
@@ -1008,6 +1022,7 @@ namespace InFalsusChartLoader
             return text.ToString();
         }
 
+#endif
         /// <summary>How many entries a scene list holds, or -1.</summary>
         private static int ListCount(IntPtr scene, int field)
         {
@@ -1088,8 +1103,10 @@ namespace InFalsusChartLoader
             _viewListField = FieldResolver.Lookup(SceneType, "_rr");
             _leftCardField = FieldResolver.Lookup(SceneType, "leftSongCardContainer");
             _rightCardField = FieldResolver.Lookup(SceneType, "rightSongCardContainer");
+#if DEBUG
             _cardListField = FieldResolver.Lookup("SongSelectSmallCardScrollContainer", "_yR");
             _cardIndexField = FieldResolver.Lookup("SongSelectSmallCardScrollContainer", "_YR");
+#endif
             _selectedIndexField = FieldResolver.Lookup(SceneType, "_Rr");
             _sortField = FieldResolver.Field(SceneType, "_Tr");
 

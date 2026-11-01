@@ -1,5 +1,3 @@
-using System;
-
 namespace InFalsusChartLoader
 {
     /// <summary>One song folder under <c>Charts/</c>, as its <c>if</c> file describes it.</summary>

@@ -67,9 +67,6 @@ namespace InFalsusChartLoader
         }
         private static int SongDataNameIndex => Offsets.SongData.NameIndex;
 
-        /// <summary>The one prefix the game's rebuild leaves out.</summary>
-        private const string FilteredPrefix = "tutorial";
-
         /// <summary>A ceiling on a title-reading array's length.</summary>
         private const int LocaleLimit = 64;
 
@@ -297,11 +294,6 @@ namespace InFalsusChartLoader
             return admitted;
         }
 
-        /// <summary>Adds every chart folder to the song and pack tables.</summary>
-        internal static int Inject(IntPtr songData, IntPtr packData, List<ChartInfo> charts,
-                                   List<PackManifest> packs) =>
-            ReplaceCustoms(songData, packData, charts, packs);
-
         /// <summary>Rebuilds the custom tail of the song table in id order.</summary>
         internal static int ReplaceCustoms(IntPtr songData, IntPtr packData, List<ChartInfo> charts,
                                            List<PackManifest> packs)
@@ -326,7 +318,7 @@ namespace InFalsusChartLoader
             List<PackGroup> groups = BuildGroups(packData, charts, packs);
             if (groups == null) return 0;
 
-            if (!PackSetup.ApplyPackAssets(packData, packs))
+            if (!PackSetup.ApplyPackAssets(packs))
             {
                 Diagnostics.Error("the custom packs could not be given their rows; the custom songs were " +
                                   "not added");
@@ -340,7 +332,7 @@ namespace InFalsusChartLoader
 
             if (!GrowAvailability(songData, newCount)) return 0;
 
-            IntPtr songs = ResizeArray(oldSongs, newCount);
+            IntPtr songs = Root(NewArray(oldSongs, newCount));
             if (songs == IntPtr.Zero) return 0;
 
             int stride = SongInfoSize;
@@ -386,7 +378,6 @@ namespace InFalsusChartLoader
             }
 
             Memory.WritePtr(songData + SongDataAllSongs, songs);
-            Root(songs);
 
             CustomSongIds.Clear();
             ById.Clear();
@@ -418,7 +409,6 @@ namespace InFalsusChartLoader
         private sealed class PackGroup
         {
             internal ushort PackId;
-            internal string Name;
             internal List<ChartInfo> Songs;
             internal IntPtr SongIds;
         }
@@ -486,7 +476,6 @@ namespace InFalsusChartLoader
                 groups.Add(new PackGroup
                 {
                     PackId = packId,
-                    Name = pack.Name,
                     Songs = songs,
                 });
                 LivePacks[packId] = pack;
@@ -588,6 +577,7 @@ namespace InFalsusChartLoader
             return true;
         }
 
+#if DEBUG
         /// <summary>How many songs the live table holds, or -1.</summary>
         internal static int AllSongCount()
         {
@@ -609,6 +599,7 @@ namespace InFalsusChartLoader
             return Memory.LooksLikeObject(list) ? Memory.I32(list + Offsets.Runtime.ArrayLength) : -1;
         }
 
+#endif
         /// <summary>The live song-id array of one pack, or zero when it is not in the live table.</summary>
         internal static IntPtr LivePackSongs(ushort packId)
         {
@@ -655,40 +646,6 @@ namespace InFalsusChartLoader
             return false;
         }
 
-        /// <summary>The live row index of one pack, or -1 when it is not in the table.</summary>
-        internal static int LivePackRow(ushort packId)
-        {
-            if (!TryGetAssets(out IntPtr _, out IntPtr packData)) return -1;
-
-            IntPtr packs = Memory.Ptr(packData + Offsets.PackData.Packs);
-            if (!Memory.LooksLikeObject(packs)) return -1;
-
-            int count = Memory.I32(packs + Offsets.Runtime.ArrayLength);
-            for (int i = 0; i < count; i++)
-            {
-                IntPtr pack = packs + Offsets.Runtime.ArrayDataOffset + i * PackInfoSize;
-                if (Memory.U16(pack + PackInfoId) == packId) return i;
-            }
-
-            return -1;
-        }
-
-        /// <summary>The pack id in one live row, or 0xFFFF when there is none.</summary>
-        internal static ushort LivePackIdAtRow(int row)
-        {
-            if (row < 0) return ushort.MaxValue;
-            if (!TryGetAssets(out IntPtr _, out IntPtr packData)) return ushort.MaxValue;
-
-            IntPtr packs = Memory.Ptr(packData + Offsets.PackData.Packs);
-            if (!Memory.LooksLikeObject(packs)) return ushort.MaxValue;
-
-            int count = Memory.I32(packs + Offsets.Runtime.ArrayLength);
-            if (row >= count) return ushort.MaxValue;
-
-            IntPtr pack = packs + Offsets.Runtime.ArrayDataOffset + row * PackInfoSize;
-            return Memory.U16(pack + PackInfoId);
-        }
-
         /// <summary>Copies the live row of a pack over a saved copy of it.</summary>
         internal static bool CopyPackTo(IntPtr destination, ushort packId)
         {
@@ -709,36 +666,6 @@ namespace InFalsusChartLoader
             }
 
             return false;
-        }
-
-        /// <summary>Copies the live row of the scene's current pack over its saved copy.</summary>
-        internal static bool CopyPackToScene(IntPtr scene, int field)
-        {
-            if (!Memory.LooksLikeObject(scene) || field <= 0) return false;
-
-            ushort wanted = Memory.U16(scene + field + PackInfoId);
-            return CopyPackTo(scene + field, wanted);
-        }
-
-        /// <summary>An array of the same element type, resized, keeping the elements that fit.</summary>
-        private static IntPtr ResizeArray(IntPtr like, int count)
-        {
-            int oldCount = Memory.I32(like + Offsets.Runtime.ArrayLength);
-            IntPtr resized = NewArray(like, count);
-            if (resized == IntPtr.Zero) return IntPtr.Zero;
-
-            int stride = ElementStride(like, oldCount);
-            if (stride <= 0) return IntPtr.Zero;
-
-            int copy = oldCount < count ? oldCount : count;
-            long bytes = (long)copy * stride;
-            if (bytes > 0)
-            {
-                Buffer.MemoryCopy((void*)(like + Offsets.Runtime.ArrayDataOffset),
-                                  (void*)(resized + Offsets.Runtime.ArrayDataOffset), bytes, bytes);
-            }
-
-            return Root(resized);
         }
 
         /// <summary>The illustrator to show for one difficulty.</summary>

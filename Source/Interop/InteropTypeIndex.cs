@@ -40,7 +40,9 @@ namespace InFalsusChartLoader
 
             var index = new Dictionary<string, List<Type>>(StringComparer.Ordinal);
             var lookup = new Dictionary<string, Type>(StringComparer.Ordinal);
+#if DEBUG
             int scanned = 0;
+#endif
 
             foreach (Assembly asm in AppDomain.CurrentDomain.GetAssemblies())
             {
@@ -67,7 +69,9 @@ namespace InFalsusChartLoader
 
                     try
                     {
+#if DEBUG
                         scanned++;
+#endif
 
                         Add(index, t.Name, t);
                         AddLookup(lookup, t.Name, t);
@@ -87,7 +91,9 @@ namespace InFalsusChartLoader
                 }
             }
 
+#if DEBUG
             Diagnostics.Info($"indexed {scanned} interop types by name");
+#endif
             _byName = index;
             _lookup = lookup;
         }

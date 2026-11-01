@@ -38,7 +38,9 @@ namespace InFalsusChartLoader
             return copy;
         }
 
+#if DEBUG
         internal static int Count => ByBase.Count;
+#endif
 
         /// <summary>Every material the surviving songs still point at.</summary>
         internal static HashSet<IntPtr> LiveMaterials()

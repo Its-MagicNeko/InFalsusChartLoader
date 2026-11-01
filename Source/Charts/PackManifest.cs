@@ -1,5 +1,3 @@
-using System;
-
 namespace InFalsusChartLoader
 {
     /// <summary>One custom pack folder, as its root <c>if</c> file describes it.</summary>

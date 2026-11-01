@@ -63,7 +63,9 @@ namespace InFalsusChartLoader
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
         private static void MusicPauseDetour(IntPtr self, double at, IntPtr methodInfo)
         {
+#if DEBUG
             MusicPauses++;
+#endif
             _musicPauseTramp(self, at, methodInfo);
 
             if (!Faulted)
@@ -83,7 +85,9 @@ namespace InFalsusChartLoader
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
         private static void MusicResumeDetour(IntPtr self, float volume, double time, IntPtr methodInfo)
         {
+#if DEBUG
             MusicResumes++;
+#endif
             _musicResumeTramp(self, volume, time, methodInfo);
 
             if (!Faulted)

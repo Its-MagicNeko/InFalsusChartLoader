@@ -14,7 +14,9 @@ namespace InFalsusChartLoader
         private static UnlockFillFn _unlockFillTramp;
 
         /// <summary>Results-screen unlock fills seen, and how many of them were about a custom song.</summary>
+#if DEBUG
         internal static long UnlockFills, UnlockHidden;
+#endif
 
         /// <summary>The difficulty field, the enum member to hide on, and the record size.</summary>
         private static int _unlockDifficulty = -1;
@@ -67,7 +69,9 @@ namespace InFalsusChartLoader
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
         private static void UnlockFillDetour(IntPtr self, IntPtr before, IntPtr after, IntPtr methodInfo)
         {
+#if DEBUG
             UnlockFills++;
+#endif
 
             if (!Faulted)
             {
@@ -76,7 +80,9 @@ namespace InFalsusChartLoader
                     if (after != IntPtr.Zero &&
                         Selection.TryReadSong(out IntPtr playing) && CustomResults.IsOurs(playing))
                     {
+#if DEBUG
                         UnlockHidden++;
+#endif
 
                         byte* hidden = stackalloc byte[UnlockSnapshotLimit];
                         for (int i = 0; i < _unlockSize; i++) hidden[i] = ((byte*)after)[i];

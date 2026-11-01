@@ -33,6 +33,7 @@ namespace InFalsusChartLoader
         /// <summary>Where the file lives. For the log and the probes.</summary>
         internal static string FilePath;
 
+#if DEBUG
         /// <summary>Counters for the probe.</summary>
         internal static long Reads, Served, Updates, Merged, Saves;
 
@@ -40,6 +41,7 @@ namespace InFalsusChartLoader
         internal static long Late;
 
         internal static long EncounterWrites, EncounterDropped;
+#endif
 
         private static bool _writeFailed;
 
@@ -249,14 +251,20 @@ namespace InFalsusChartLoader
                 Il2CppInterop.Runtime.IL2CPP.il2cpp_runtime_invoke(method, Container, null, ref raised);
                 if (raised == IntPtr.Zero)
                 {
+#if DEBUG
                     Saves++;
+#endif
                     return;
                 }
 
                 if (Stamp(FilePath) != before)
                 {
+#if DEBUG
                     Saves++;
+#endif
+#if DEBUG
                     Late++;
+#endif
                     return;
                 }
 

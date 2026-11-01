@@ -11,6 +11,7 @@ namespace InFalsusChartLoader
 
         internal static int Faults { get; private set; }
 
+#if DEBUG
         internal static long VaCalls, VaServed;
         internal static long DjaCalls, DjaHits;
         internal static long ZgaCalls, ZgaServed;
@@ -31,14 +32,15 @@ namespace InFalsusChartLoader
 
         /// <summary>Chart starts.</summary>
         internal static long ChartStarts;
+#endif
 
         /// <summary>Whether a `GameScene` is running; reloads wait until it is gone.</summary>
         internal static bool Playing;
 
+#if DEBUG
         /// <summary>Pauses and resumes of the scene's music.</summary>
         internal static long MusicPauses, MusicResumes;
 
-#if DEBUG
         internal static long RowCalls, RowRedirects;
         internal static long TicksRow, TicksApa, TicksMia, TicksVc, TicksRead;
 
@@ -162,21 +164,20 @@ namespace InFalsusChartLoader
         {
             if (Patched(target, prologue)) return true;
 
+#if DEBUG
             NotLanded(hook);
+#endif
             return false;
         }
 
+#if DEBUG
         /// <summary>Says which hook did not take.</summary>
-        [System.Diagnostics.Conditional("DEBUG")]
         private static void NotLanded(Hook hook)
         {
-#if DEBUG
             Diagnostics.Warn($"{Name(hook)} was attached but its first bytes are unchanged; the detour " +
                              "is not in place, and whatever it answers for will silently do nothing");
-#endif
         }
 
-#if DEBUG
         /// <summary>The hooks by name, for the log. Debug only — see <see cref="Hook"/>.</summary>
         private static string Name(Hook hook) => hook switch
         {

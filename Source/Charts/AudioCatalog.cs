@@ -25,8 +25,9 @@ namespace InFalsusChartLoader
         /// <summary>Entries an open reader may still be serving; released when the scene switch finishes.</summary>
         private static readonly List<Entry> Retired = new List<Entry>();
 
-        /// <summary>Reads served, bytes handed over, and names resolved.</summary>
-        internal static long Served, ServedBytes, Resolved;
+#if DEBUG
+        /// <summary>Reads served and bytes handed over.</summary>
+        internal static long Served, ServedBytes;
 
         /// <summary>The index a song's audio answers to, or -1.</summary>
         internal static int IndexOf(string baseName) =>
@@ -37,6 +38,7 @@ namespace InFalsusChartLoader
             ByBase.TryGetValue(baseName, out Entry entry) && entry.Audio != null
                 ? entry.Audio.Length
                 : -1;
+#endif
 
         /// <summary>Prepares a song's audio and assigns it an index.</summary>
         internal static bool Add(string baseName, string path, out string reason)
@@ -154,7 +156,6 @@ namespace InFalsusChartLoader
             if (!ByBase.TryGetValue(baseName, out Entry entry)) return false;
 
             Memory.WriteI32(indexPtr, entry.Index);
-            Resolved++;
             return true;
         }
 
@@ -203,8 +204,10 @@ namespace InFalsusChartLoader
 
             if (count > 0) Marshal.Copy(bytes, offset, buffer, count);
 
+#if DEBUG
             Served++;
             ServedBytes += count;
+#endif
 
             Memory.WriteI32(info + Offsets.Runtime.ReadRecord.BytesRead, count);
 

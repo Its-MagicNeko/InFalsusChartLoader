@@ -1,6 +1,4 @@
 using System;
-using System.Diagnostics;
-using System.Runtime.CompilerServices;
 
 namespace InFalsusChartLoader
 {
@@ -42,14 +40,9 @@ namespace InFalsusChartLoader
             return true;
         }
 
+#if DEBUG
         /// <summary>The value of that word while the manager is not taking reads.</summary>
         private const int NotReading = 2;
-
-        private static IntPtr _statics;
-        private static IntPtr _remove, _removeInfo;
-        private static IntPtr _contains, _containsInfo;
-        private static bool _ready;
-        private static bool _warned;
 
         /// <summary>Reads the game had already marked to be skipped.</summary>
         internal static long Skipped;
@@ -59,6 +52,12 @@ namespace InFalsusChartLoader
 
         /// <summary>Reads this mod served and then released.</summary>
         internal static long Released;
+#endif
+
+        private static IntPtr _statics;
+        private static IntPtr _remove, _removeInfo;
+        private static IntPtr _contains, _containsInfo;
+        private static bool _ready;
 
         /// <summary>Releases a served read from the game's outstanding and cancelled sets.</summary>
         internal static void Finished(IntPtr record)
@@ -71,9 +70,12 @@ namespace InFalsusChartLoader
             Call(_remove, _removeInfo, Memory.Ptr(_statics + FieldDispatched), info);
             Call(_remove, _removeInfo, Memory.Ptr(_statics + FieldCancelled), info);
 
+#if DEBUG
             Released++;
+#endif
         }
 
+#if DEBUG
         /// <summary>Counts a read that is about to be skipped, without changing the sets.</summary>
         internal static void Observe(IntPtr record)
         {
@@ -98,6 +100,7 @@ namespace InFalsusChartLoader
                 : -1;
         }
 
+#endif
         /// <summary>Reaches the sets and the methods used on them, once.</summary>
         private static bool Ready()
         {
@@ -128,32 +131,43 @@ namespace InFalsusChartLoader
                 _contains = MethodOn(setClass, "Contains", 1, out _containsInfo);
                 if (_remove == IntPtr.Zero || _contains == IntPtr.Zero)
                 {
+#if DEBUG
                     Report("the outstanding-read sets could not be read; a served read will not " +
                            "release its block");
+#endif
                     return false;
                 }
 
                 _ready = true;
+#if DEBUG
                 Diagnostics.Info($"read bookkeeping reached: Remove 0x{_remove.ToInt64():X}, " +
                                  $"Contains 0x{_contains.ToInt64():X}, " +
                                  $"outstanding now {Outstanding()}");
+#endif
                 return true;
             }
             catch (Exception e)
             {
+#if DEBUG
                 Report($"the outstanding-read sets could not be reached: {Diagnostics.Describe(e)}");
+#else
+                _ = e;
+#endif
                 return false;
             }
         }
 
+#if DEBUG
         /// <summary>Logs why the sets could not be reached, once.</summary>
-        [Conditional("DEBUG")]
         private static void Report(string why)
         {
             if (_warned) return;
             _warned = true;
             Diagnostics.Warn(why);
         }
+
+        private static bool _warned;
+#endif
 
         /// <summary>A method by name and parameter count, with its MethodInfo.</summary>
         private static IntPtr MethodOn(IntPtr klass, string name, int parameters, out IntPtr methodInfo)

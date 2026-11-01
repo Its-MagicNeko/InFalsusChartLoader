@@ -111,7 +111,9 @@ namespace InFalsusChartLoader
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
         private static IntPtr RkDetour(IntPtr self, IntPtr methodInfo)
         {
+#if DEBUG
             ChartStarts++;
+#endif
             Playing = true;
             SongSelect = IntPtr.Zero;
 

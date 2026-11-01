@@ -30,6 +30,9 @@ namespace InFalsusChartLoader
         private static bool _held;
         private static bool _ended;
 
+        /// <summary>Whether the prepared clip still needs its opening frame positioned.</summary>
+        private static bool _firstFramePending;
+
         private static double _heldClock = double.NaN;
         private static bool _rewound;
 
@@ -51,8 +54,8 @@ namespace InFalsusChartLoader
 
             if (_playing == path && _material != IntPtr.Zero)
             {
-                string parked = null;
-                Park(out parked);
+                _firstFramePending = true;
+                Park(out string parked);
 
                 if (!Show(_texture, out reason)) return IntPtr.Zero;
 
@@ -80,6 +83,7 @@ namespace InFalsusChartLoader
 
                 if (!Set("set_audioOutputMode", 1, 0 /* VideoAudioOutputMode.None */, out reason)) return IntPtr.Zero;
 
+                _firstFramePending = true;
                 if (!Call("Prepare", 0, _player, out reason)) return IntPtr.Zero;
 
                 if (!Show(_texture, out reason)) return IntPtr.Zero;
@@ -141,6 +145,7 @@ namespace InFalsusChartLoader
         {
             if (_player == IntPtr.Zero || _playing == null) return;
 
+            _firstFramePending = true;
             string reason = null;
             Park(out reason);
 
@@ -154,11 +159,22 @@ namespace InFalsusChartLoader
         /// <summary>Puts the clip back on its first frame and holds it there.</summary>
         private static void Park(out string reason)
         {
-            if (Flag("get_isPrepared") && !Set("set_time", 1, 0.0, out reason))
-                Diagnostics.Warn($"the background video could not be placed for the song: {reason}");
+            reason = null;
+            if (!Flag("get_isPrepared")) return;
 
             if (!Call("Pause", 0, _player, out reason))
+            {
                 Diagnostics.Warn($"the background video could not be held for the song: {reason}");
+                return;
+            }
+
+            if (!Set("set_time", 1, 0.0, out reason))
+            {
+                Diagnostics.Warn($"the background video could not be placed for the song: {reason}");
+                return;
+            }
+
+            _firstFramePending = false;
         }
 
         /// <summary>How far the picture may sit off the chart's clock.</summary>
@@ -189,6 +205,12 @@ namespace InFalsusChartLoader
         internal static void Follow()
         {
             if (_player == IntPtr.Zero || _playing == null) return;
+
+            if (_firstFramePending)
+            {
+                Park(out _);
+                if (_firstFramePending) return;
+            }
 
             double clock = ChartClock();
             if (double.IsNaN(clock))
@@ -322,7 +344,9 @@ namespace InFalsusChartLoader
             }
 
             _running = true;
+#if DEBUG
             Starts++;
+#endif
             Diagnostics.Info($"background video started with the song ({clock:F3} s on the chart clock)");
             return true;
         }
@@ -390,22 +414,18 @@ namespace InFalsusChartLoader
             _held = true;
             _heldClock = ChartClock();
             _rewound = false;
+#if DEBUG
             Holds++;
+#endif
             Diagnostics.Info("background video held for the pause");
 
 #if DEBUG
-            _songAtHold = at;
             double held = Time();
             Diagnostics.Info(held < 0.0
                 ? $"the clip would not say where it was; the song was held at {at:F3} s"
                 : $"the clip is at {held:F3} s while the song was held at {at:F3} s");
 #endif
         }
-
-#if DEBUG
-        /// <summary>The song's position when the pause came, for the probe.</summary>
-        private static double _songAtHold;
-#endif
 
         /// <summary>Sets the clip running again after a pause.</summary>
         internal static void Resume(bool atMusicReturn = false)
@@ -426,10 +446,13 @@ namespace InFalsusChartLoader
                 return;
             }
 
+#if DEBUG
             Resumes++;
+#endif
             Diagnostics.Info("background video resumed with the song");
         }
 
+#if DEBUG
         /// <summary>How many times a chart's start set the clip running.</summary>
         internal static long Starts;
 
@@ -451,6 +474,7 @@ namespace InFalsusChartLoader
             }
         }
 
+#endif
         /// <summary>A boolean property of the player.</summary>
         private static bool Flag(string name)
         {
@@ -490,6 +514,7 @@ namespace InFalsusChartLoader
                 Diagnostics.Warn($"the background video's source could not be cleared: {reason}");
 
             _playing = null;
+            _firstFramePending = false;
             _armed = false;
             _running = false;
             _held = false;

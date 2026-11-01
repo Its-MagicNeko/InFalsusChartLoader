@@ -41,13 +41,21 @@ namespace InFalsusChartLoader
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
         private static IntPtr VaDetour(IntPtr result, IntPtr name, IntPtr methodInfo)
         {
+#if DEBUG
             VaCalls++;
+#endif
 
             if (!Faulted)
             {
                 try
                 {
-                    if (ChartCatalog.TryServe(name, result)) { VaServed++; return result; }
+                    if (ChartCatalog.TryServe(name, result))
+                    {
+#if DEBUG
+                        VaServed++;
+#endif
+                        return result;
+                    }
                 }
                 catch (Exception e)
                 {

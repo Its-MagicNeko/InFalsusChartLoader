@@ -27,9 +27,6 @@ namespace InFalsusChartLoader
         /// <summary>`SongSelectPackAssets.BackingImageNonCompleted` — the backing material slot.</summary>
         private static int RowBacking = Offsets.Unresolved;
 
-        /// <summary>`SongSelectPackAssets.BackingImageCompleted` — the completed backing slot.</summary>
-        private static int RowBackingDone = Offsets.Unresolved;
-
         private static bool _fieldsResolved;
 
         private static bool _fieldsMissing;
@@ -48,11 +45,10 @@ namespace InFalsusChartLoader
             RowLargeCard = FieldResolver.Field("SongSelectPackAssets", "PackSelectLargeNonCompleted");
             RowSmallCard = FieldResolver.Field("SongSelectPackAssets", "PackSelectNonCompleted");
             RowBacking = FieldResolver.Field("SongSelectPackAssets", "BackingImageNonCompleted");
-            RowBackingDone = FieldResolver.Field("SongSelectPackAssets", "BackingImageCompleted");
 
             if (PackDataAccess < 0 || ViewModelSong < 0 || CardsField < 0 ||
                 CardViewModel < 0 || ViewModelDifficulty < 0 ||
-                RowLargeCard < 0 || RowSmallCard < 0 || RowBacking < 0 || RowBackingDone < 0)
+                RowLargeCard < 0 || RowSmallCard < 0 || RowBacking < 0)
             {
                 _fieldsMissing = true;
                 Diagnostics.Error("the pack's card fields could not be read by name in this build; the " +
@@ -81,7 +77,9 @@ namespace InFalsusChartLoader
         private static IntPtr _buildCardInfo;
 
         /// <summary>Difficulty applies seen, cards rebuilt for one, and pack screens rebuilt after a reload.</summary>
+#if DEBUG
         internal static long PackDifficultyCalls, PackCardsRebuilt, PackVisualRebuilds;
+#endif
 
         /// <summary>The shared accessor for `SongSelectPackAssets` rows.</summary>
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
@@ -376,7 +374,9 @@ namespace InFalsusChartLoader
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
         private static void PackDifficultyDetour(IntPtr self, byte difficulty, IntPtr methodInfo)
         {
+#if DEBUG
             PackDifficultyCalls++;
+#endif
 
             bool rebuild = false;
             if (!Faulted)
@@ -449,11 +449,17 @@ namespace InFalsusChartLoader
                 try
                 {
                     _buildCard(card, dataAccess, viewModel, _buildCardInfo);
+#if DEBUG
                     PackCardsRebuilt++;
+#endif
                 }
                 catch (Exception e)
                 {
+#if DEBUG
                     Reported("rebuilding a card on the pack screen raised: " + Diagnostics.Describe(e));
+#else
+                    _ = e;
+#endif
                 }
             }
         }
@@ -475,8 +481,8 @@ namespace InFalsusChartLoader
             return JacketCatalog.IsOurs(viewModel + ViewModelSong);
         }
 
+#if DEBUG
         /// <summary>Says why the rebuild failed, once.</summary>
-        [System.Diagnostics.Conditional("DEBUG")]
         private static void Reported(string why)
         {
             if (_rebuildReported) return;
@@ -485,6 +491,7 @@ namespace InFalsusChartLoader
         }
 
         private static bool _rebuildReported;
+#endif
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         private delegate byte PackOwnedFn(IntPtr self, ushort packId, IntPtr methodInfo);

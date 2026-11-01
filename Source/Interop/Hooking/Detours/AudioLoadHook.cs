@@ -73,7 +73,9 @@ namespace InFalsusChartLoader
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
         private static void ZgADetour(IntPtr record, IntPtr unused)
         {
+#if DEBUG
             ZgaCalls++;
+#endif
 
             if (!Faulted)
             {
@@ -82,7 +84,13 @@ namespace InFalsusChartLoader
 #if DEBUG
                     PendingReads.Observe(record);
 #endif
-                    if (AudioCatalog.TryServe(record)) { ZgaServed++; return; }
+                    if (AudioCatalog.TryServe(record))
+                    {
+#if DEBUG
+                        ZgaServed++;
+#endif
+                        return;
+                    }
                 }
                 catch (Exception e)
                 {
@@ -97,13 +105,21 @@ namespace InFalsusChartLoader
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
         private static byte DjaDetour(IntPtr self, IntPtr name, IntPtr index)
         {
+#if DEBUG
             DjaCalls++;
+#endif
 
             if (!Faulted)
             {
                 try
                 {
-                    if (AudioCatalog.TryResolve(name, index)) { DjaHits++; return 1; }
+                    if (AudioCatalog.TryResolve(name, index))
+                    {
+#if DEBUG
+                        DjaHits++;
+#endif
+                        return 1;
+                    }
                 }
                 catch (Exception e)
                 {

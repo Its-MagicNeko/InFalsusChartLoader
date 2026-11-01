@@ -7,11 +7,13 @@ namespace InFalsusChartLoader
     /// <summary>The play-gate and scene-switch probes.</summary>
     internal static unsafe partial class Hooks
     {
+        /// <summary>The song-select scene used by selection and reload.</summary>
+        internal static IntPtr SongSelect;
+
+#if DEBUG
         /// <summary>Play-gate calls and how many said yes.</summary>
         internal static long PlayGateCalls, PlayGateYes;
-
-        /// <summary>The song-select scene the gate was last called on.</summary>
-        internal static IntPtr SongSelect;
+#endif
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         private delegate byte PlayGateFn(IntPtr self, IntPtr methodInfo);
@@ -54,8 +56,10 @@ namespace InFalsusChartLoader
         {
             byte answer = _gateTramp(self, methodInfo);
 
+#if DEBUG
             PlayGateCalls++;
             if (answer != 0) PlayGateYes++;
+#endif
             if (Memory.LooksLikeObject(self)) SongSelect = self;
 
             Diagnostics.Info($"play gate: _sN -> {answer != 0}");
@@ -63,9 +67,11 @@ namespace InFalsusChartLoader
             return answer;
         }
 
+#if DEBUG
         /// <summary>`CoreScene._CB.MoveNext` — the scene switch.</summary>
         internal static long SceneSwitchCalls;
         internal static int SceneSwitchLastState = int.MinValue;
+#endif
 
         private static bool _releaseReported;
 
@@ -78,6 +84,7 @@ namespace InFalsusChartLoader
                               Diagnostics.Describe(e));
         }
 
+#if DEBUG
         /// <summary>The object the console switch is waiting on, and its class name.</summary>
         internal static IntPtr SceneSwitchWait;
         internal static string SceneSwitchWaitName;
@@ -111,6 +118,7 @@ namespace InFalsusChartLoader
 
         /// <summary>`_J._Ig._TwA` — the byte `keepWaiting` reads, asked once.</summary>
         private static int _igDoneByte = int.MinValue;
+#endif
 
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         private delegate byte MoveNextFn(IntPtr self, IntPtr methodInfo);
@@ -152,7 +160,9 @@ namespace InFalsusChartLoader
         private static byte MoveNextDetour(IntPtr self, IntPtr methodInfo)
         {
             byte more = _moveNextTramp(self, methodInfo);
+#if DEBUG
             SceneSwitchCalls++;
+#endif
 
             if (more == 0)
             {
@@ -162,6 +172,7 @@ namespace InFalsusChartLoader
                 catch (Exception e) { ReleaseFailed(e); }
             }
 
+#if DEBUG
             if (!Memory.LooksLikeObject(self)) return more;
 
             int state = Memory.I32(self + StateField);
@@ -185,14 +196,17 @@ namespace InFalsusChartLoader
                                  $"at 0x{current.ToInt64():X}");
             }
 
+#endif
             return more;
         }
 
+#if DEBUG
         /// <summary>`&lt;&gt;2__current` — the object a generated coroutine is yielding.</summary>
         private const int CurrentField = Offsets.Runtime.Coroutine.Current;
 
         /// <summary>`&lt;&gt;1__state` — a generated coroutine's state.</summary>
         private const int StateField = Offsets.Runtime.Coroutine.State;
+#endif
 
     }
 }

@@ -1,3 +1,4 @@
+#if DEBUG
 using System;
 using System.Reflection;
 
@@ -111,3 +112,4 @@ namespace InFalsusChartLoader
         }
     }
 }
+#endif

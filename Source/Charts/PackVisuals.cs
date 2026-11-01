@@ -76,12 +76,6 @@ namespace InFalsusChartLoader
                 return false;
             }
 
-            if (!PackSetup.ExtendVisuals(packAssets, packId))
-            {
-                reason = "the pack's visual row could not be grown";
-                return false;
-            }
-
             IntPtr table = Memory.Ptr(packAssets + PackSetup.VisualsTableOffset);
             if (!Memory.LooksLikeObject(table))
             {

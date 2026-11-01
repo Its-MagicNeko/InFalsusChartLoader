@@ -6,11 +6,13 @@ namespace InFalsusChartLoader
 {
     internal static unsafe partial class Hooks
     {
+#if DEBUG
         /// <summary>Selections applied.</summary>
         internal static long ApplyCalls;
 
         /// <summary>Times a difficulty change or a chart reload forced the pictures to reload.</summary>
         internal static long ApplyReloaded;
+#endif
 
         /// <summary>The `_MN` delegate.</summary>
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
@@ -54,7 +56,10 @@ namespace InFalsusChartLoader
         private static byte MnDetour(IntPtr self, ushort songId, byte difficulty, int transition,
                                      IntPtr methodInfo)
         {
+#if DEBUG
             ApplyCalls++;
+            SelectionRestoreProbe.Applied(self, $"apply before transition={transition}", songId, difficulty);
+#endif
 
             bool shadowed = false;
             if (!Faulted)
@@ -66,7 +71,9 @@ namespace InFalsusChartLoader
                     SongCatalog.ShowIllustrator(songId, difficulty);
 
                     shadowed = Selection.ShadowUnlessSongChanged(self, songId, changed);
+#if DEBUG
                     if (shadowed) ApplyReloaded++;
+#endif
                 }
                 catch (Exception e)
                 {
@@ -77,6 +84,9 @@ namespace InFalsusChartLoader
             byte applied = _applyTramp(self, songId, difficulty, transition, methodInfo);
 
             if (shadowed) Selection.Unshadow(self, songId);
+#if DEBUG
+            SelectionRestoreProbe.Applied(self, $"apply after result={applied}", songId, difficulty);
+#endif
 
             return applied;
         }
@@ -90,7 +100,9 @@ namespace InFalsusChartLoader
         private static DifficultyStateFn _stateTramp;
 
         /// <summary>Difficulty questions asked, and how many of them were about this mod's songs.</summary>
+#if DEBUG
         internal static long DifficultyAsked, DifficultyOurs;
+#endif
 
         private static bool InstallDifficultyState()
         {
@@ -126,7 +138,9 @@ namespace InFalsusChartLoader
         private static byte DifficultyDetour(IntPtr save, IntPtr access, IntPtr songInfo, byte difficulty,
                                              byte flags, IntPtr methodInfo)
         {
+#if DEBUG
             DifficultyAsked++;
+#endif
 
             if (!Faulted)
             {
@@ -134,7 +148,9 @@ namespace InFalsusChartLoader
                 {
                     if (Ours(songInfo, difficulty, out ChartInfo info, out int index))
                     {
+#if DEBUG
                         DifficultyOurs++;
+#endif
 
                         return info.NoChart[index] ? (byte)0 : (byte)2;
                     }

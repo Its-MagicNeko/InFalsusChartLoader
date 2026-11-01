@@ -1,3 +1,4 @@
+#if DEBUG
 using System;
 using System.Collections.Generic;
 
@@ -274,3 +275,4 @@ namespace InFalsusChartLoader
         private static void line(string text) => Diagnostics.Info("probe: " + text);
     }
 }
+#endif

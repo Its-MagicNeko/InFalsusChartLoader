@@ -270,13 +270,11 @@ namespace InFalsusChartLoader
 
                 HashSet<IntPtr> livePictures = JacketCatalog.LiveMaterials();
                 livePictures.UnionWith(BackgroundCatalog.LiveMaterials());
-                int released = 0;
                 foreach (IntPtr material in retired)
                 {
                     if (livePictures.Contains(material)) continue;
-                    if (JacketFactory.Release(material)) released++;
+                    JacketFactory.Release(material);
                 }
-                if (released > 0) Diagnostics.Info($"probe: pictures released={released}");
 
                 ModCore.Adopt(final, imported.Packs);
                 ModCore.MarkRegistered();
