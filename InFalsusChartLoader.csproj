@@ -10,7 +10,7 @@
     <Configurations>Debug;Release;BepInExDebug;BepInExRelease</Configurations>
 
     <!-- The assembly's version number. -->
-    <AssemblyVersion>0.3.0</AssemblyVersion>
+    <AssemblyVersion>0.4.0</AssemblyVersion>
   </PropertyGroup>
 
   <!-- The optional if-spc-api C# library. -->

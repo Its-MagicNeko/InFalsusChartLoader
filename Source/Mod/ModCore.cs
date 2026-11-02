@@ -7,7 +7,7 @@ namespace InFalsusChartLoader
     internal static class ModCore
     {
         /// <summary>The mod's version, shared by both loader entries.</summary>
-        internal const string Version = "0.3.0";
+        internal const string Version = "0.4.0";
 
         /// <summary>What was imported, waiting for the game's data to exist so it can be registered.</summary>
         private static List<ChartInfo> _imported = new List<ChartInfo>();
