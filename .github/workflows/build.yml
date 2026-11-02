@@ -34,7 +34,7 @@ jobs:
         with:
           name: if-spc-api-cs
           repository: Its-MagicNeko/if-spc-api
-          run-id: 41079716931
+          run-id: ${{ vars.IF_SPC_API_CI_ID }}
           path: Managed
           github-token: ${{ secrets.IF_SPC_API }}
 
