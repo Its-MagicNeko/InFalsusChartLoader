@@ -11,25 +11,12 @@ namespace InFalsusChartLoader
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         private delegate void StartFn(IntPtr self, IntPtr methodInfo);
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-        private delegate ushort ReadFn(IntPtr self, ushort pack, IntPtr methodInfo);
-        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-        private delegate void WriteFn(IntPtr self, ushort pack, ushort song, IntPtr methodInfo);
-        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         private delegate byte ExistsFn(IntPtr self, ushort song, IntPtr methodInfo);
 
         private static NativeHook<StartFn> _startHook;
-        private static NativeHook<ReadFn> _readHook;
-        private static NativeHook<WriteFn> _writeHook;
         private static NativeHook<ExistsFn> _existsHook;
         private static StartFn _start;
-        private static ReadFn _read;
-        private static WriteFn _write;
         private static ExistsFn _exists;
-        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-        private delegate void PackFn(IntPtr self, ushort pack, IntPtr methodInfo);
-
-        private static NativeHook<PackFn> _packHook;
-        private static PackFn _pack;
         private static long _sequence;
         private static int _starting;
 
@@ -39,15 +26,6 @@ namespace InFalsusChartLoader
             Attach("SongSelectScene", "Start",
                 (IntPtr)(delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void>)&Start,
                 out _startHook, out _start);
-            Attach("_NH", "_zNA",
-                (IntPtr)(delegate* unmanaged[Cdecl]<IntPtr, ushort, IntPtr, ushort>)&Read,
-                out _readHook, out _read);
-            Attach("_NH", "_ZNA",
-                (IntPtr)(delegate* unmanaged[Cdecl]<IntPtr, ushort, ushort, IntPtr, void>)&Write,
-                out _writeHook, out _write);
-            Attach("_NH", "_hoA",
-                (IntPtr)(delegate* unmanaged[Cdecl]<IntPtr, ushort, IntPtr, void>)&Pack,
-                out _packHook, out _pack);
             Attach("SongData", "_CpA",
                 (IntPtr)(delegate* unmanaged[Cdecl]<IntPtr, ushort, IntPtr, byte>)&Exists,
                 out _existsHook, out _exists);
@@ -77,10 +55,7 @@ namespace InFalsusChartLoader
         /// <summary>Removes selection-restoration observers.</summary>
         internal static void Uninstall()
         {
-            _packHook?.Detach();
             _existsHook?.Detach();
-            _writeHook?.Detach();
-            _readHook?.Detach();
             _startHook?.Detach();
         }
 
@@ -104,9 +79,9 @@ namespace InFalsusChartLoader
         {
             _starting++;
             Snapshot("Start before");
-            SaveState(IntPtr.Zero, "Start before");
+            SaveState("Start before");
             _start(self, methodInfo);
-            SaveState(IntPtr.Zero, "Start after");
+            SaveState("Start after");
             try
             {
                 int selected = FieldResolver.Field("SongSelectScene", "_sr");
@@ -117,25 +92,21 @@ namespace InFalsusChartLoader
             _starting--;
         }
 
-        [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
-        private static ushort Read(IntPtr self, ushort pack, IntPtr methodInfo)
+        /// <summary>Records the song a pack's remembered position answered.</summary>
+        internal static void SongRead(ushort pack, ushort song) =>
+            Report($"saved song read pack={pack} song={song} starting={_starting} ours={Positions.Ready} " +
+                   Identity(song));
+
+        /// <summary>Records a song written as a pack's position, with the game's save after it.</summary>
+        internal static void SongWritten(ushort pack, ushort song)
         {
-            Report($"saved song read before pack={pack} starting={_starting} registered={ModCore.Registered}");
-            ushort song = _read(self, pack, methodInfo);
-            Report($"saved song read after pack={pack} song={song} {Identity(song)}");
-            return song;
+            Report($"saved song write pack={pack} song={song} starting={_starting} {Identity(song)}");
+            SaveState($"song setter after pack={pack} song={song}");
         }
 
-        [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
-        private static void Write(IntPtr self, ushort pack, ushort song, IntPtr methodInfo)
-        {
-            Report($"saved song write before pack={pack} song={song} starting={_starting} " +
-                   $"registered={ModCore.Registered} {Identity(song)}");
-            SaveState(self, $"song setter before pack={pack} song={song}");
-            _write(self, pack, song, methodInfo);
-            SaveState(self, $"song setter after pack={pack} song={song}");
-            Report($"saved song write after pack={pack} song={song}");
-        }
+        /// <summary>Records a pack written as the position, with the game's save after it.</summary>
+        internal static void PackSet(ushort pack) =>
+            SaveState($"pack setter after requested={pack}");
 
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
         private static byte Exists(IntPtr self, ushort song, IntPtr methodInfo)
@@ -155,30 +126,19 @@ namespace InFalsusChartLoader
                 int selected = FieldResolver.Field("SongSelectScene", "_sr");
                 Report($"{boundary} requestedSong={song} difficulty={difficulty} " +
                        $"sceneSong={(selected < 0 ? -1 : Memory.U16(scene + selected))} {Identity(song)}");
-                SaveState(IntPtr.Zero, boundary);
+                SaveState(boundary);
             }
             catch (Exception e) { Report($"apply observation failed: {Diagnostics.Describe(e)}"); }
         }
 
-        [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
-        private static void Pack(IntPtr self, ushort pack, IntPtr methodInfo)
-        {
-            SaveState(self, $"pack setter before requested={pack}");
-            _pack(self, pack, methodInfo);
-            SaveState(self, $"pack setter after requested={pack}");
-        }
-
         /// <summary>Reads the selection dictionary without creating missing entries.</summary>
-        private static void SaveState(IntPtr save, string boundary)
+        private static void SaveState(string boundary)
         {
             try
             {
-                if (save == IntPtr.Zero)
-                {
-                    IntPtr klass = FieldResolver.ClassPointer("_NH");
-                    IntPtr statics = klass == IntPtr.Zero ? IntPtr.Zero : FieldResolver.Statics(klass);
-                    save = statics == IntPtr.Zero ? IntPtr.Zero : Memory.Ptr(statics);
-                }
+                IntPtr klass = FieldResolver.ClassPointer("_NH");
+                IntPtr statics = klass == IntPtr.Zero ? IntPtr.Zero : FieldResolver.Statics(klass);
+                IntPtr save = statics == IntPtr.Zero ? IntPtr.Zero : Memory.Ptr(statics);
                 int containerAt = FieldResolver.Field("_NH", "_DEb");
                 int stateAt = FieldResolver.Field("SingleFileSaveDataV2", "GeneralSaveState");
                 int packAt = FieldResolver.Field("GeneralSaveStateV5", "LastSelectedPackId");

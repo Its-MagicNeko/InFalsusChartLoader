@@ -74,13 +74,6 @@ namespace InFalsusChartLoader
                 return;
             }
 
-            if (!Faulted)
-            {
-                try { SongSelectRefresh.DeselectIfGonePackSelected(); }
-                catch (Exception e) { Fault(Hook.PackList, e); }
-            }
-            Diagnostics.Info("probe: pack list detour deselect done");
-
             _packListTramp(self, methodInfo);
             Diagnostics.Info("probe: pack list detour awake done");
 

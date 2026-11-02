@@ -813,17 +813,6 @@ namespace InFalsusChartLoader
             return true;
         }
 
-        /// <summary>Puts the save back on all songs when it points at a pack that is no longer live.</summary>
-        internal static void DeselectIfGonePackSelected()
-        {
-            if (!Resolve()) return;
-            if (!CurrentPackId(out ushort selected)) return;
-            if (selected == ushort.MaxValue) return;
-            if (SongCatalog.LivePackExists(selected)) return;
-
-            DeselectPack();
-        }
-
         /// <summary>The pack the save has selected.</summary>
         internal static bool SelectedPack(out ushort packId)
         {

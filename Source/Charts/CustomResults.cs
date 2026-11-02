@@ -30,6 +30,9 @@ namespace InFalsusChartLoader
         /// <summary>Our save container — the object that owns `IFCL.sav`. Zero until prepared.</summary>
         internal static IntPtr Container;
 
+        /// <summary>Set while our container writes or reads <c>IFCL.sav</c>; the selection slot holds the positions only then.</summary>
+        internal static bool Writing, Reading;
+
         /// <summary>Where the file lives. For the log and the probes.</summary>
         internal static string FilePath;
 
@@ -94,6 +97,11 @@ namespace InFalsusChartLoader
                 string path = Path.Combine(folder, FileName);
                 string tempPath = Path.Combine(folder, TempFileName);
 
+                bool positions = Positions.Create() && Hooks.InstallSaveFollow();
+                if (!positions)
+                    Diagnostics.Error("the song select positions could not be prepared; the custom packs and " +
+                                      "songs will not be remembered");
+
                 bool exists = File.Exists(path);
                 byte[] known = null;
                 IntPtr obj = exists ? Load(path, out known) : IntPtr.Zero;
@@ -131,6 +139,7 @@ namespace InFalsusChartLoader
                 Container = container;
                 Table = table;
                 FilePath = path;
+                Positions.Ready = positions;
 
                 Diagnostics.Load("custom results: " + (exists ? "opened " : "prepared ") + path);
 
@@ -248,7 +257,15 @@ namespace InFalsusChartLoader
                 long before = Stamp(FilePath);
 
                 IntPtr raised = IntPtr.Zero;
-                Il2CppInterop.Runtime.IL2CPP.il2cpp_runtime_invoke(method, Container, null, ref raised);
+                Writing = true;
+                try
+                {
+                    Il2CppInterop.Runtime.IL2CPP.il2cpp_runtime_invoke(method, Container, null, ref raised);
+                }
+                finally
+                {
+                    Writing = false;
+                }
                 if (raised == IntPtr.Zero)
                 {
 #if DEBUG
@@ -377,7 +394,15 @@ namespace InFalsusChartLoader
                 args[2] = SerializerOptions();
 
                 IntPtr raised = IntPtr.Zero;
-                Il2CppInterop.Runtime.IL2CPP.il2cpp_runtime_invoke(method, IntPtr.Zero, (void**)args, ref raised);
+                Reading = true;
+                try
+                {
+                    Il2CppInterop.Runtime.IL2CPP.il2cpp_runtime_invoke(method, IntPtr.Zero, (void**)args, ref raised);
+                }
+                finally
+                {
+                    Reading = false;
+                }
                 if (raised != IntPtr.Zero)
                 {
                     Diagnostics.Warn($"reading {FileName} raised: {Raised.Text(raised)}");

@@ -102,7 +102,7 @@ namespace InFalsusChartLoader
         private static int PackInfoSongs => Offsets.Pack.Songs;  // SongId[]
 
         /// <summary>The pack manifest each live custom pack id belongs to.</summary>
-        private static readonly Dictionary<ushort, PackManifest> LivePacks =
+        internal static readonly Dictionary<ushort, PackManifest> LivePacks =
             new Dictionary<ushort, PackManifest>();
 
         /// <summary>Whether a pack id is one of this mod's live packs.</summary>
@@ -414,7 +414,7 @@ namespace InFalsusChartLoader
         }
 
         /// <summary>The game pack id assigned to each live custom pack identity.</summary>
-        private static readonly Dictionary<(bool GamePictures, string Id), ushort> PackIds =
+        internal static readonly Dictionary<(bool GamePictures, string Id), ushort> PackIds =
             new Dictionary<(bool, string), ushort>();
 
         /// <summary>Groups the songs by their pack and gives every non-empty pack its id.</summary>

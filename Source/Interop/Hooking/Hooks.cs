@@ -72,6 +72,7 @@ namespace InFalsusChartLoader
             Count(InstallPackOwned());
             Count(InstallPackSelect());
             Count(InstallPackList());
+            Count(InstallPositions());
             Count(InstallCustomResults());
             Count(InstallResultsUnlock());
             Count(InstallPlayGate());
@@ -93,6 +94,7 @@ namespace InFalsusChartLoader
             DetachPlayGate();
             DetachResultsUnlock();
             DetachCustomResults();
+            DetachPositions();
             DetachPackSelect();
             DetachPackList();
             DetachPackOwned();
@@ -157,6 +159,13 @@ namespace InFalsusChartLoader
             PlayGate,
             SceneSwitch,
             HubRefresh,
+            CurrentPack,
+            SelectPack,
+            SavedSong,
+            SaveSong,
+            SlotWrite,
+            SlotRead,
+            SaveRequest,
         }
 
         /// <summary>Whether a detour landed.</summary>
@@ -208,6 +217,13 @@ namespace InFalsusChartLoader
             Hook.PlayGate => "SongSelectScene._sN",
             Hook.SceneSwitch => "CoreScene._CB.MoveNext",
             Hook.HubRefresh => "HubScene._WK",
+            Hook.CurrentPack => "_NH._aoA",
+            Hook.SelectPack => "_NH._hoA",
+            Hook.SavedSong => "_NH._zNA",
+            Hook.SaveSong => "_NH._ZNA",
+            Hook.SlotWrite => "DictionaryFormatter<PackId, SongId>.Serialize",
+            Hook.SlotRead => "DictionaryFormatter<PackId, SongId>.Deserialize",
+            Hook.SaveRequest => "_NH._SoA",
             _ => "(unknown hook)",
         };
 #endif

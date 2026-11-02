@@ -105,6 +105,7 @@ namespace InFalsusChartLoader
                 if (_imported.Count == 0)
                 {
                     _registered = true;
+                    CustomResults.Prepare();
                     return;
                 }
 
