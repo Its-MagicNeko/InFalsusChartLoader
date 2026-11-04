@@ -102,7 +102,7 @@ namespace InFalsusChartLoader
             IntPtr fresh = IntPtr.Zero;
             int slot = -1;
             bool packEmpty = false;
-            bool allSongsButton = fromLast && packId == ushort.MaxValue;
+            bool allSongsButton = fromLast && packId == ushort.MaxValue && !CategoryOpen(layer);
             Diagnostics.Info($"probe: refresh pack id={packId}");
 
             if (packId == ushort.MaxValue)
@@ -905,6 +905,33 @@ namespace InFalsusChartLoader
         /// <summary>The one sentence reported when the pack title cannot be moved back to all songs.</summary>
         private const string PackTitleFailed =
             "the song select's pack title could not be updated in this build; it will keep the name of the pack that left";
+
+        /// <summary>Whether the category screen owns input at the moment.</summary>
+        private static bool CategoryOpen(IntPtr layer)
+        {
+            if (!Memory.LooksLikeObject(layer)) return false;
+
+            IntPtr klass = FieldResolver.ClassPointer("InputManager");
+            if (klass == IntPtr.Zero) return false;
+
+            IntPtr statics = FieldResolver.Statics(klass);
+            int instanceField = FieldResolver.Field("InputManager", "Instance");
+            IntPtr manager = statics != IntPtr.Zero && instanceField >= 0
+                ? Memory.Ptr(statics + instanceField)
+                : IntPtr.Zero;
+            if (!Memory.LooksLikeObject(manager)) return false;
+
+            IntPtr method = MethodInfo("InputManager", "IsCurrentTopCurrentInputStack", 1);
+            if (method == IntPtr.Zero) return false;
+
+            IntPtr* args = stackalloc IntPtr[1];
+            args[0] = layer;
+            IntPtr raised = IntPtr.Zero;
+            IntPtr result = Il2CppInterop.Runtime.IL2CPP.il2cpp_runtime_invoke(
+                method, manager, (void**)args, ref raised);
+            return raised == IntPtr.Zero && result != IntPtr.Zero &&
+                   Memory.U8(result + Offsets.Runtime.BoxedData) != 0;
+        }
 
         /// <summary>Resolves the game's own all-songs button action.</summary>
         private static bool PrepareAllSongsButton()
