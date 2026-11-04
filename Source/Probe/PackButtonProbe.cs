@@ -20,6 +20,7 @@ namespace InFalsusChartLoader
         private static NativeHook<StepFn> _updateHook, _cancelHook, _endHook, _addHook;
         private static StepFn _update, _cancel, _end, _add;
         private static int _current, _target, _transition, _busy, _assets, _table;
+        private static int _lastSong;
         private static int _component, _id, _time, _duration, _bits;
         private static int _calculated, _material;
         private static readonly string[] VisualNames =
@@ -45,6 +46,7 @@ namespace InFalsusChartLoader
                 _target = FieldResolver.Field("PackSelectButtonContainer", "_br");
                 _transition = FieldResolver.Field("PackSelectButtonContainer", "_Br");
                 _busy = FieldResolver.Field("PackSelectButtonContainer", "_cr");
+                _lastSong = FieldResolver.Field("PackSelectButtonContainer", "_Cr");
                 _assets = FieldResolver.Field("PackSelectButtonContainer", "packSelectSceneAssets");
                 _table = FieldResolver.Field("PackSelectSceneAssets", "packToAssets");
                 _component = FieldResolver.Field("TweenInstanceUnsafe", "Component");
@@ -54,7 +56,7 @@ namespace InFalsusChartLoader
                 _bits = FieldResolver.Field("TweenInstanceUnsafe", "bits");
                 _calculated = FieldResolver.Field("Constrained2D", "Calculated");
                 _material = FieldResolver.Field("_ti", "_OHb");
-                foreach (int field in new[] { _current, _target, _transition, _busy, _assets, _table,
+                foreach (int field in new[] { _current, _target, _transition, _busy, _lastSong, _assets, _table,
                                              _component, _id, _time, _duration, _bits, _calculated, _material })
                     if (field < 0) return;
 
@@ -228,7 +230,8 @@ namespace InFalsusChartLoader
         {
             string state = $"button=0x{_button.ToInt64():X} " +
                            $"current={Memory.U16(_button + _current)} target={Memory.U16(_button + _target)} " +
-                           $"transition={Memory.U16(_button + _transition)} busy={Memory.U8(_button + _busy)}";
+                           $"transition={Memory.U16(_button + _transition)} busy={Memory.U8(_button + _busy)} " +
+                           $"song={Memory.U16(_button + _lastSong)}";
             for (int i = 0; i < VisualFields.Length; i++)
             {
                 IntPtr visual = Memory.Ptr(_button + VisualFields[i]);

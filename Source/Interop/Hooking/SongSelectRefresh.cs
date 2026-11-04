@@ -38,6 +38,8 @@ namespace InFalsusChartLoader
         private static int _packListField = Offsets.Unresolved;
         private static int _packIndexField = Offsets.Unresolved;
         private static IntPtr _packRebuildInfo;
+        private static IntPtr _ceInfo;
+        private static IntPtr _ftaInfo;
 
         private static int _packSceneAccessField = Offsets.Unresolved;
         private static int _packDifficultyField = Offsets.Unresolved;
@@ -81,7 +83,9 @@ namespace InFalsusChartLoader
 
             if (!Resolve()) return;
 
-            if (!CurrentPackId(out ushort packId))
+            ushort packId = ushort.MaxValue;
+            bool fromLast = Positions.Ready && Positions.LastPack(out packId);
+            if (!fromLast && !CurrentPackId(out packId))
             {
                 Diagnostics.Error("the current pack could not be read; the song list was not rebuilt");
                 return;
@@ -94,10 +98,11 @@ namespace InFalsusChartLoader
                 _titleFellBack = DeselectPack();
             }
 
+            IntPtr layer = Memory.Ptr(scene + _packLayerField);
             IntPtr fresh = IntPtr.Zero;
-            IntPtr layer = IntPtr.Zero;
             int slot = -1;
             bool packEmpty = false;
+            bool allSongsButton = fromLast && packId == ushort.MaxValue;
             Diagnostics.Info($"probe: refresh pack id={packId}");
 
             if (packId == ushort.MaxValue)
@@ -106,7 +111,6 @@ namespace InFalsusChartLoader
             }
             else
             {
-                layer = Memory.Ptr(scene + _packLayerField);
                 if (!Memory.LooksLikeObject(layer))
                 {
                     Diagnostics.Error("the pack layer could not be read; the song list was not rebuilt");
@@ -146,7 +150,34 @@ namespace InFalsusChartLoader
             }
 
             RefreshSongs(scene);
-            ApplyInline(scene, packEmpty ? IntPtr.Zero : fresh);
+            if (allSongsButton)
+            {
+                if (!PrepareAllSongsButton() || !Memory.LooksLikeObject(layer))
+                {
+                    Diagnostics.Error(PackSwitchFailed);
+                    return;
+                }
+
+                Invoke(_ceInfo, layer, null, PackSwitchFailed);
+
+                IntPtr button = Memory.Ptr(scene + _packButtonField);
+                if (!Memory.LooksLikeObject(button))
+                {
+                    Diagnostics.Error(PackSwitchFailed);
+                    return;
+                }
+
+                IntPtr* complete = stackalloc IntPtr[1];
+                complete[0] = IntPtr.Zero;
+                Invoke(_ftaInfo, button, complete, PackSwitchFailed);
+#if DEBUG
+                PackButtonProbe.Snapshot("all songs button");
+#endif
+            }
+            else
+            {
+                ApplyInline(scene, packEmpty ? IntPtr.Zero : fresh);
+            }
 
             if (_titleFellBack)
             {
@@ -874,6 +905,27 @@ namespace InFalsusChartLoader
         /// <summary>The one sentence reported when the pack title cannot be moved back to all songs.</summary>
         private const string PackTitleFailed =
             "the song select's pack title could not be updated in this build; it will keep the name of the pack that left";
+
+        /// <summary>Resolves the game's own all-songs button action.</summary>
+        private static bool PrepareAllSongsButton()
+        {
+            if (_ceInfo != IntPtr.Zero && _ftaInfo != IntPtr.Zero) return true;
+
+            _ceInfo = MethodResolver.MethodInfoByRuntime("PackSelectScene", "_Ce");
+            _ftaInfo = MethodResolver.MethodInfoByRuntime("PackSelectButtonContainer", "_fTA");
+            _packButtonField = FieldResolver.Field("SongSelectScene", "packSelectButtonContainer");
+            if (_ceInfo == IntPtr.Zero ||
+                Il2CppInterop.Runtime.IL2CPP.il2cpp_method_get_param_count(_ceInfo) != 0 ||
+                _ftaInfo == IntPtr.Zero ||
+                Il2CppInterop.Runtime.IL2CPP.il2cpp_method_get_param_count(_ftaInfo) != 1 ||
+                _packButtonField < 0)
+            {
+                Diagnostics.Error(PackSwitchFailed);
+                return false;
+            }
+
+            return true;
+        }
 
         /// <summary>
         /// Puts the song select's pack button back on all songs, through the game's own `_Tn` and the
