@@ -16,6 +16,9 @@ namespace InFalsusChartLoader
         /// <summary>`PackId.Invalid` — all songs.</summary>
         private const ushort AllSongs = ushort.MaxValue;
 
+        /// <summary>The `LAST` value that keeps the position on all songs.</summary>
+        private static readonly string AllKey = GamePrefix + AllSongs;
+
         private static PositionMap _map;
         private static IntPtr _formatter;
         private static IntPtr _serialize;
@@ -99,12 +102,13 @@ namespace InFalsusChartLoader
         {
             pack = AllSongs;
             if (!_map.TryGetValue(LastKey, out string key)) return false;
+            if (key == AllKey) return true;
 
             var identity = key == RootKey ? (true, string.Empty) : (false, key.Substring(PackPrefix.Length));
             if (!SongCatalog.PackIds.TryGetValue(identity, out pack))
             {
                 pack = AllSongs;
-                _map.Remove(LastKey);
+                _map[LastKey] = AllKey;
             }
             return true;
         }
